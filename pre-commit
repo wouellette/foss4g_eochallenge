@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# An example hook script to verify what is about to be committed.
+# Called by "git commit" with no arguments.  The hook should
+# exit with non-zero status after issuing an appropriate message if
+# it wants to stop the commit.
+#
+# To enable this hook, copy this file to the ".git/hooks" directory".
+
+# clear the notebook output
+nbstripout eochallenge_notebook.ipynb
+# generate the "pure" Python version of the notebook
+jupyter nbconvert eochallenge_notebook.ipynb --to="python"
+# add the generated file to the staging area of Git
+git add eochallenge_notebook.py
