@@ -1,2 +1,6 @@
 .virtualenv
 *.iml
+.idea
+.ipynb_checkpoints
+.vscode
+
