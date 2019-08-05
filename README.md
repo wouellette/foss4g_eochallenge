@@ -18,7 +18,31 @@ To create a new ENV file  or to update the current one use this command (while t
 ```
 
 ### Virtualenv
-TBA
+
+Install virtualenv:
+```shell script
+pip install virtualenv
+```
+Creating a virtual environment can be done by the command below. 
+This wil generate a virtual environment for python in a defined directory (in this case .virtualenv): 
+```shell script
+virtualenv create --python=python3 .virtualenv
+```
+
+Activate virtual environment:
+```shell script
+source .virtualenv/bin/activate
+```
+
+To install dependencies using pip and the requirements file:
+```shell script
+pip install -r requirements.txt
+```
+
+To leave the virtual environment:
+```shell script
+deactivate
+```
 
 ## Git integration
 Since generally Jupyter Notebook changes contain a lot of noise, it's hard to track the actual differences in Git (for a more detailed description of the problem as well as a few solution out there see [this page](https://nextjournal.com/schmudde/how-to-version-control-jupyter)).
