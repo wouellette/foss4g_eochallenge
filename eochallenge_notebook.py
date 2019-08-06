@@ -19,6 +19,7 @@ import random
 from enum import Enum
 import datetime
 from functools import partial
+from multiprocessing import Pool
 
 from tqdm import tqdm
 import requests
@@ -71,14 +72,14 @@ import shap
 
 # If a buffer size is defined around the AOI, it can be passed here in meters
 args = easydict.EasyDict({
-  "aoi": "./aoi_eochallenge.shp",
-  "training_path": ["./trainingdata_germany.shp","./trainingdata_romania.shp"],
+  "aoi": "./aoi_eochallenge.geojson",
+  "training_path": ["./training_data/trainingdata_germany.shp","./training_data/trainingdata_romania.shp"],
   "aoi_bufsize": 10000,
   "zoom_level": (10,10),
   "hour_diff": 73,
   "cloud_threshold": 0.8,
   "maxcc": 0.5,
-  "dest": "/path/to/dest",
+  "dest": "/mnt/10t-drive/eochallenge",
   "time_range": ["2005-01-01","2019-08-01"],
   "save_choice": True,
   "n_procs": 4,
@@ -534,13 +535,14 @@ col = args.zoom_level[1]
 aoi = gpd.read_file(args.aoi)
 aoi['geometry'] = aoi['geometry'].to_crs(epsg=3857).buffer(bufsize).to_crs(epsg=4326)
 
+country_list = ['Germany','Romania']
 bbox_splitter_list = []
 # Assuming there are two AOIs: one for Romania, one for Germany
-for idx, aoi_el in zip(['Germany','Romania'], aoi.geometry.values.tolist()):
+for idx, aoi_el in zip(country_list, aoi.geometry):
     
-    aoi_latlon = aoi_el[0].centroid.coords[0]
+    aoi_latlon = aoi_el.centroid.coords[0]
     utm_crs = utm.from_latlon(aoi_latlon[1], aoi_latlon[0])
-    if bbox_latlon[1] > 0:
+    if aoi_latlon[1] > 0:
         if utm_crs[2] > 9:
             aoi_crs = 'EPSG:326%s' % utm_crs[2]
         else:
@@ -552,7 +554,11 @@ for idx, aoi_el in zip(['Germany','Romania'], aoi.geometry.values.tolist()):
             aoi_crs = 'EPSG:3270%s' % utm_crs[2]
             
     # Split the AOI into a processing grid matching the OSM zoom level 12 grid
-    bbox_splitter = BBoxSplitter([aoi_el], aoi_crs, (row, col))
+    
+    aoi_temp = aoi['geometry'].to_crs(aoi_crs)
+
+    print(country_list.index(idx))
+    bbox_splitter = BBoxSplitter([aoi_temp[country_list.index(idx)]], aoi_crs, (row, col))
     bbox_splitter_list.append(bbox_splitter)
     
     bbox_list = bbox_splitter.get_bbox_list()
@@ -597,7 +603,7 @@ trainings = [training_germany, training_romania]
 training_arrays = []
 split_arrays = []
 training_vals = []
-for idx, training in zip(['Germany','Romania'], trainings):
+for idx, training in zip(country_list, trainings):
     # List land cover class labels present in AOI
     # training_utm = training.to_crs(crs={'init': CRS.ogc_string(aoi_crs)})
     training_val = sorted(list(set(training.lulc_type)))
@@ -612,7 +618,7 @@ for idx, training in zip(['Germany','Romania'], trainings):
     for val in training_val:
         row_area = 0
         temp = training[training.lulc_type == val]
-        temp = temp.assign(area=temp['geom'].area / 1000000, split=0)
+        temp = temp.assign(area=temp['geometry'].area / 1000000, split=0)
         total_area = temp['area'].sum()
         # print(f'total_area:{total_area}')
         for irow in range(len(temp)):
@@ -637,15 +643,15 @@ for idx, training in zip(['Germany','Romania'], trainings):
     # pd.concat(split_array).plot(column='lulc_type',legend=True,figsize=(8,4))
     # pd.concat(training_array).plot(column='lulc_type',legend=True,figsize=(8,4))
 
-    #os.makedirs(f'{out_path}/training_data', exist_ok=True)
+    os.makedirs(f'{out_path}/training_data', exist_ok=True)
 
     # Save outputs to pickle files
-    # with open(f'{out_path}/training_data/training_array_{idx}.pkl', 'wb') as training_file:
-    #     pickle.dump(training_array, training_file)
-    # with open(f'{out_path}/training_data/split_array_{idx}.pkl', 'wb') as split_file:
-    #     pickle.dump(split_array, split_file)
-    # with open(f'{out_path}/training_data/training_val_{idx}.pkl', 'wb') as val_file:
-    #     pickle.dump(training_val, val_file)
+    with open(f'{out_path}/training_data/training_array_{idx}.pkl', 'wb') as training_file:
+        pickle.dump(training_array, training_file)
+    with open(f'{out_path}/training_data/split_array_{idx}.pkl', 'wb') as split_file:
+        pickle.dump(split_array, split_file)
+    with open(f'{out_path}/training_data/training_val_{idx}.pkl', 'wb') as val_file:
+        pickle.dump(training_val, val_file)
 
     training_arrays.append(training_array)
     split_arrays.append(split_array)
