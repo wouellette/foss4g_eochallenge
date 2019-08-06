@@ -92,10 +92,10 @@ args = easydict.EasyDict({
     "no data": 0,
     "forest": 1,
     "grass": 2,
-    "cropland": 3,
-    "rock/soil": 4,
+    "farmland": 3,
+    "bare soil": 4,
     "built-up": 5,
-    "water": 6,
+    "permanent water": 6,
   }})
 
 
