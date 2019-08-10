@@ -4,7 +4,7 @@
 # Imports and other initializations
 # 
 
-# In[ ]:
+# In[1]:
 
 
 # General imports 
@@ -103,7 +103,7 @@ args = easydict.EasyDict({
 # Various utilities required by the notebook
 # 
 
-# In[ ]:
+# In[2]:
 
 
 class MaxCCPredicate:
@@ -523,7 +523,7 @@ def multiprocess(n_procs, range_idx, func):
 # Load AOI geometry and split it into a processing grid.
 # 
 
-# In[ ]:
+# In[3]:
 
 
 # The AOI should be in EPSG:4326
@@ -584,6 +584,35 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     gdf.to_file(f'{out_path}/aoi/aoi_bbox_4326_{idx}_r{row}_c{col}_{len(bbox_splitter.bbox_list)}.shp')
     
     # Plot the processing grid produced on ipyleaflet
+    
+
+
+# In[4]:
+
+
+from shapely.geometry import MultiPoint
+aoi_centroids_mp = MultiPoint([geom.centroid.coords[0] for geom in aoi.geometry])
+overall_centroid_of_all_aois = aoi_centroids_mp.centroid.coords[0]
+print(overall_centroid_of_all_aois)
+zoom = 5 #OSM zoom level
+center = tuple(reversed(overall_centroid_of_all_aois))
+m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
+
+
+# In[5]:
+
+
+from ipyleaflet import GeoData
+#NOTE: currently geopandas are read back from the filesystem; this can be done on-the-fly in the outer loop above
+rom_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Romania_r10_c10_100.shp')
+rom_geo_data = GeoData(geo_dataframe = rom_gpd.to_crs({'init': 'epsg:4326'}) ,name = "bucharest")
+m.add_layer(rom_geo_data)
+
+ger_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Germany_r10_c10_100.shp')
+ger_geo_data = GeoData(geo_dataframe = ger_gpd.to_crs({'init': 'epsg:4326'}) ,name = "markkleeberg")
+m.add_layer(ger_geo_data)
+
+m
 
 
 # Split Training dataset into a training and test parts
@@ -995,6 +1024,7 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 
 
 
+
 # Interpolate the loaded EOPatches
 # Finding a new way of aggregating data instead of interpolation would be interesting for two reasons:
 # - Interpolation requires cloud masking, which would we have to work on to apply to LISS-III.
@@ -1257,6 +1287,7 @@ joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
 #    shap_explainer(model, features_train, out_path)
 
 
+
 # Plot test results
 # 
 
@@ -1484,6 +1515,7 @@ plt.show()
 pbar = tqdm(total=len(bbox_splitter.bbox_list))
 
 
+
 # Predict EOPatches using trained model
 # 
 
@@ -1638,7 +1670,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
     #print(out_path)
     
     cmd = 'gdaldem color-relief %s /mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/col.txt %s -of Gtiff'%(tiff,out_vrt)
-    get_ipython().system('{cmd}')
+    get_ipython().system(u'{cmd}')
     """cmd1 = 'gdalwarp -of GTiff -overwrite -s_srs %s -t_srs %s %s %s'%(src_crs, dst_crs, out_vrt, out_vrt1)
     !{cmd1}
     os.remove(out_vrt)
@@ -1680,7 +1712,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
         #nodata = src.nodata
     
     cmd2 = "convert %s -transparent black -fuzz 11%% %s"%(out_path, out_jpg)
-    get_ipython().system('{cmd2}')
+    get_ipython().system(u'{cmd2}')
 
     # Overlay raster called img using add_child() function (opacity and bounding box set)
     #m.add_child( folium.raster_layers.ImageOverlay(img[0], opacity=1, colormap=newcmp,
