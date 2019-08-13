@@ -26,7 +26,7 @@ pip install virtualenv
 Creating a virtual environment can be done by the command below. 
 This wil generate a virtual environment for python in a defined directory (in this case .virtualenv): 
 ```shell script
-virtualenv create --python=python3 .virtualenv
+virtualenv --python=python3 .virtualenv
 ```
 
 Activate virtual environment:

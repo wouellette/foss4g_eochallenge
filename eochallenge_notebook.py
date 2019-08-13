@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# Imports and other initializations
+# # Imports and other initializations
 # 
 
-# In[ ]:
+# In[1]:
 
 
 # General imports 
@@ -19,11 +19,15 @@ import random
 from enum import Enum
 import datetime
 from functools import partial
-from multiprocessing import Pool
+from multiprocess import Pool
 
 from tqdm import tqdm
 import requests
 import easydict
+
+# Interactive multithreading
+from nbmultitask import ThreadWithLogAndControls
+from time import sleep
 
 # Imports relative to web mapping and displaying results
 from ipyleaflet import Map, basemaps, ImageOverlay, TileLayer
@@ -38,6 +42,7 @@ import numpy as np
 from numpy import unravel_index
 import rasterio as rio
 from rasterio.warp import calculate_default_transform, reproject, Resampling
+from rasterio.io import MemoryFile
 
 # Geospatial data wrangling (mostly vector data)
 import utm
@@ -60,7 +65,7 @@ from eolearn.features import LinearInterpolation, SimpleFilterTask
 from eolearn.geometry import PointSamplingTask, VectorToRaster
 from eolearn.io import ExportToTiff, SentinelHubWCSInput
 from eolearn.mask import AddValidDataMaskTask
-from sentinelhub import CRS, BBoxSplitter
+from sentinelhub import CRS, BBoxSplitter, WcsRequest
 from eolearn.ml_tools import MorphologicalOperations, MorphologicalStructFactory
 
 # ML libraries
@@ -80,7 +85,7 @@ args = easydict.EasyDict({
   "cloud_threshold": 0.8,
   "maxcc": 0.5,
   "dest": "/mnt/10t-drive/eochallenge",
-  "time_range": ["2005-01-01","2019-08-01"],
+  "time_range": ["2005-01-01","2016-12-30"],
   "save_choice": True,
   "n_procs": 4,
   "resolution": 23.5,
@@ -100,10 +105,10 @@ args = easydict.EasyDict({
   }})
 
 
-# Various utilities required by the notebook
+# # Various utilities required by the notebook
 # 
 
-# In[ ]:
+# In[2]:
 
 
 class MaxCCPredicate:
@@ -503,6 +508,7 @@ def intersect_aoi(bbox_splitter, training):
     idxs_y = [info['index_y'] for info in bbox_splitter.info_list]
     df = pd.DataFrame({'index_x': idxs_x, 'index_y': idxs_y})
     gdf = gpd.GeoDataFrame(df, crs={'init': CRS.ogc_string(bbox_splitter.bbox_list[0].crs)}, geometry=geometry)
+    gdf = gdf.to_crs({'init': 'epsg:4326'})
     gdf.head()
     range_bool = gdf.intersects(training.buffer(0).unary_union)
     bbox_train_list = []
@@ -519,11 +525,35 @@ def multiprocess(n_procs, range_idx, func):
     p.map(func, range_idx, chunksize=1)
     
 
+def decode_image(response_content):
+    """
+    Decodes the image provided in various formats, i.e. png, 32-bit float tiff,..
+    and returns it as an numpy array
+    :param response_content: image in its original format
+    :return: image as numpy array
+    """
+    with MemoryFile(response_content).open() as dataset:
+        img = dataset.read()
+    return img
 
-# Load AOI geometry and split it into a processing grid.
+
+def plot_image(image, factor=1):
+    """
+    Utility function for plotting RGB images.
+    """
+    fig = plt.subplots(nrows=1, ncols=1, figsize=(15, 7))
+    image = image.swapaxes(0,1).swapaxes(1,2)
+
+    if np.issubdtype(image.dtype, np.floating):
+        plt.imshow(np.minimum(image * factor, 1))
+    else:
+        plt.imshow(image)
+
+
+# # Load AOI geometry and split it into a processing grid.
 # 
 
-# In[ ]:
+# In[3]:
 
 
 # The AOI should be in EPSG:4326
@@ -586,10 +616,10 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     # Plot the processing grid produced on ipyleaflet
 
 
-# Split Training dataset into a training and test parts
+# # Split Training dataset into a training and test parts
 # 
 
-# In[ ]:
+# In[4]:
 
 
 
@@ -660,15 +690,48 @@ for idx, training in zip(country_list, trainings):
     # Plot the training data distribution on ipyleaflet
 
 
-# Load Satellite Imagery Collections
+# # Plot the processing grids
+# ## Load OSM map centered on AOIs
+
+# In[5]:
+
+
+from shapely.geometry import MultiPoint
+aoi_centroids_mp = MultiPoint([geom.centroid.coords[0] for geom in aoi.geometry])
+overall_centroid_of_all_aois = aoi_centroids_mp.centroid.coords[0]
+print(overall_centroid_of_all_aois)
+zoom = 5 #OSM zoom level
+center = tuple(reversed(overall_centroid_of_all_aois))
+m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
+
+
+# ## Display the processing grids over the two AOIs
+
+# In[6]:
+
+
+from ipyleaflet import GeoData
+#NOTE: currently geopandas are read back from the filesystem; this can be done on-the-fly in the outer loop above
+rom_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Romania_r10_c10_100.shp')
+rom_geo_data = GeoData(geo_dataframe = rom_gpd.to_crs({'init': 'epsg:4326'}) ,name = "bucharest")
+m.add_layer(rom_geo_data)
+
+ger_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Germany_r10_c10_100.shp')
+ger_geo_data = GeoData(geo_dataframe = ger_gpd.to_crs({'init': 'epsg:4326'}) ,name = "markkleeberg")
+m.add_layer(ger_geo_data)
+
+m
+
+
+# # Load Satellite Imagery Collections
 # 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
 # 
 
-# In[ ]:
+# In[8]:
 
 
-def load_eopatch(bbox_splitters, time_interval, training_array, split_array, training_val, out_path, bbox_idx,
+def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
                  interp_interval=30, save_choice=True, cloud_threshold=0.4, maxcc=0.8, row=10, col=10,
                  hour_diff=73, resolution=10):
     
@@ -677,250 +740,262 @@ def load_eopatch(bbox_splitters, time_interval, training_array, split_array, tra
     end_date = time_interval[1]
     eopatches = []
     
-    for bbox in bbox_splitter.bbox_list:
-        if bbox.__eq__(bbox_idx):
+    info = bbox_splitter.info_list[idx]
+    bbox = bbox_splitter.bbox_list[idx]
 
-            idx = bbox_splitter.bbox_list.index(bbox)
-            
-            print(info)
-            print(f'bbox index to process:')
-            print(f'uuid: {idx}')
-            print(f'bbox splitter dimensions: {row}x{col} ')
-            print(f'index_x: {info["index_x"]}')
-            print(f'index_y: {info["index_y"]}')
-            
-            # While loop necessary to re-perform requests with different parameters.
-            # One case is if too little data is available with current parameters.
-            # Other case is if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
-            attempts = 0
-            while attempts < 5:
-                # TASK FOR BAND DATA
-                # 1. add a request for B(B02), G(B03), R(B04), NIR (B08), SWIR1(B11), SWIR2(B12)
-                # from default layer 'ALL_BANDS' at 10m resolution
-                custom_script = 'return [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12];'
+    #print(info)
+    #print(f'bbox index to process:')
+    #print(f'uuid: {idx}')
+    #print(f'bbox splitter dimensions: {row}x{col} ')
+    #print(f'index_x: {info["index_x"]}')
+    #print(f'index_y: {info["index_y"]}')
+
+    # While loop necessary to re-perform requests with different parameters.
+    # One case is if too little data is available with current parameters.
+    # Other case is if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
+    attempts = 0
+    while attempts < 5:
+        # TASK FOR BAND DATA
+        # 1. add a request for B(B02), G(B03), R(B04), NIR (B08), SWIR1(B11), SWIR2(B12)
+        # from default layer 'ALL_BANDS' at 10m resolution
+        custom_script = 'return [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12];'
+
+        width = round((bbox.max_x-bbox.min_x)/resolution)
+        height = round((bbox.max_y-bbox.min_y)/resolution)
+        
+        # construct request
+        url = f'https://services.sentinel-hub.com/ogc/wms/1cad1239-abdf-4dc5-ae79-fe129b926ae2'
+        params_r2 = {'service': 'WMS', 
+                  'request': 'GetMap',
+                  'layers': 'FOSS4G_R2',
+                  'bbox': f'{bbox.min_x},{bbox.max_y},{bbox.max_x},{bbox.min_y}',
+                  'time': time_interval[0] + '/' + time_interval[1],
+                  'width': width,
+                  'height': height,
+                  'format': 'image/tiff;depth=32f',
+                  'crs': bbox.crs,
+                  'version': '1.3.0',
+                  }
+        
+        params_p6 = {'service': 'WMS', 
+                  'request': 'GetMap',
+                  'layers': 'FOSS4G_P6',
+                  'bbox': f'{bbox.min_x},{bbox.max_y},{bbox.max_x},{bbox.min_y}',
+                  'time': time_interval[0] + '/' + time_interval[1],
+                  'width': width,
+                  'height': height,
+                  'format': 'image/tiff;depth=32f',
+                  'crs': bbox.crs,
+                  'version': '1.3.0',
+                  }
+
+        response_r2 = requests.get(url, params_r2)
+        response_p6 = requests.get(url, params_p6)
                 
-                add_r2 = SentinelHubWCSInput(
-                    layer='FOSS4G_R2',
-                    instance_id = '1cad1239-abdf-4dc5-ae79-fe129b926ae2',
-                    feature=(FeatureType.DATA, 'R2'),
-                    resx=f'{resolution}m',  # resolution x
-                    resy=f'{resolution}m',  # resolution y
-                    maxcc=maxcc,
-                    time_difference=datetime.timedelta(hours=hour_diff)   
+        img_r2 = decode_image(response_r2.content)
+        #timestamp_size_r2 = img_r2.shape[2] / 4
+        img_p6 = decode_image(response_p6.content)
+        #timestamp_size_p6 = img_p6.shape[2] / 4
+        
+        os.makedirs(f'{out_path}/r2', exist_ok=True)
+        os.makedirs(f'{out_path}/p6', exist_ok=True)
+        
+        out_r2 = open(f'{out_path}/r2/{info["index_x"]}_{info["index_y"]}.tif', 'wb')
+        out_r2.write(img_r2)
+        out_r2.close()
+        
+        out_p6 = open(f'{out_path}/p6/{info["index_x"]}_{info["index_y"]}.tif', 'wb')
+        out_p6.write(img_p6)
+        out_p6.close()
+        
+        add_r2 = ImportFromTiff(feature=(FeatureType.DATA, 'R2'), folder=f'{out_path}/r2')
+        add_p6 = ImportFromTiff(feature=(FeatureType.DATA, 'P6'), folder=f'{out_path}/p6')
+
+        # add_s2 = S2L1CWCSInput(
+        #     layer='BANDS-S2-L1C',
+        #     instance_id = '75afd1bc-8dba-45c3-a88a-782d39066bc3',
+        #     feature=(FeatureType.DATA, 'BANDS'),  # save under name 'BANDS'
+        #     custom_url_params={CustomUrlParam.EVALSCRIPT: custom_script},  # custom url for 6 specific bands
+        #     resx=f'{resolution}m',  # resolution x
+        #     resy=f'{resolution}m',  # resolution y
+        #     maxcc=maxcc,  # maximum allowed cloud cover of original ESA tiles
+        #     time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
+
+        # 2. Run SentinelHub's cloud detector
+        # (cloud detection is performed at 160m resolution
+        # and the resulting cloud probability map and mask
+        # are upscaled to EOPatch's resolution)
+        # Check whether this is really necessary or not, and if so, train new cloud detection model
+        # cloud_classifier = get_s2_pixel_cloud_detector(threshold=cloud_threshold,
+        #                                                average_over=2,
+        #                                                dilation_size=1,
+        #                                                all_bands=False)
+        # add_clm = AddCloudMaskTask(cloud_classifier,
+        #                            'BANDS-S2CLOUDLESS',
+        #                            cm_size_y='160m',
+        #                            cm_size_x='160m',
+        #                            cmask_feature='CLM',
+        #                            cprobs_feature='CLP')
+
+        # Request Sentinel-1 Data Raw bands.
+        # add_S1 = SentinelHubWCSInput(
+        #   layer='BANDS-S1-IW',
+        #   data_source=DataSource.SENTINEL1_IW,
+        #   resx=f'{resolution}m',
+        #   resy=f'{resolution}m',
+        #   time_difference=hour_diff)
+
+        # Request Sentinel-1 Data RGB False Color band combination.
+        # add_S1_truecolor = SentinelHubWCSInput(
+        #   layer='TRUE-COLOR-S1-IW',
+        #   data_source=DataSource.SENTINEL1_IW,
+        #   time_difference=hour_diff)
+
+        # TASKS FOR CALCULATING NEW FEATURES
+        # NDVI: (B08 - B04)/(B08 + B04)
+        # NDWI: (B03 - B08)/(B03 + B08)
+        # NORM: sqrt(B02^2 + B03^2 + B04^2 + B08^2 + B11^2 + B12^2)
+
+        # 3. Add additional band combinations like ndvi, ndwi and euclidian Norm
+        # add_ndvi = S2L1CWCSInput(
+        #    layer='NDVI',
+        #    time_difference=datetime.timedelta(hours=hour_diff))
+        # add_ndwi = S2L1CWCSInput(
+        #    layer='NDWI',
+        #    time_difference=datetime.timedelta(hours=hour_diff))
+
+        # 4. Filter task to be used for gif generation (a gif with clouds isn't very pretty, nor useful)
+        filter_task_clm = SimpleFilterTask((FeatureType.MASK, 'CLM'), MaxCCPredicate(maxcc=0.05))
+
+        # 5. Validate pixels using SentinelHub's cloud detection mask
+        add_sh_valmask = AddValidDataMaskTask(SentinelHubValidData(), 'IS_VALID')
+
+        # If using multiple datasets, they may need to be coregistered to one another.
+        # s2_temporal_coregistration = ThunderRegistration((FeatureType.DATA,index))
+        # s1_temporal_coregistration = ThunderRegistration((FeatureType.DATA,'BANDS-S1-IW'))
+
+        # 6. Count number of valid observations per pixel using valid data mask
+        count_val_sh = CountValid('IS_VALID', 'VALID_COUNT_SH')
+        rshape = (FeatureType.MASK, 'IS_VALID')
+
+        # 7. Prepare task to burn training data and its training/test split into the EOPatch
+        training_task_array = []
+        for el, val in zip(training_array, training_val):
+            training_task_array.append(VectorToRaster(
+                raster_feature=(FeatureType.MASK_TIMELESS, 'LULC'),
+                vector_input=el,
+                values=val,
+                raster_shape=rshape))
+
+        split_task_array = []
+        for el, val in zip(split_array, [1, 2]):
+            split_task_array.append(VectorToRaster(
+                raster_feature=(FeatureType.DATA_TIMELESS, 'SPLIT'),
+                vector_input=el,
+                values=val,
+                raster_shape=rshape))
+
+        # 8. Export valid pixel count to tiff file
+        export_val_sh = ExportToTiff((FeatureType.MASK_TIMELESS, 'VALID_COUNT_SH'))
+
+        extra_params = {}
+        extra_params[export_val_sh] = {'filename':f'/{out_path}/valid_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'}
+
+        # 9. define additional parameters of the workflow
+        extra_params[add_r2] = {'bbox': bbox, 'time_interval': time_interval}
+        extra_params[add_p6] = {'bbox': bbox, 'time_interval': time_interval}
+        #extra_params[add_s2] = {'bbox': bbox, 'time_interval': time_interval}
+        
+        print('test')
+
+        # 9. Declare workflow
+        if gif:
+            workflow = LinearWorkflow(
+            add_r2,
+            add_p6,
+            #add_s2,
+            #add_clm,
+            #filter_task_clm,
+            add_sh_valmask,
+            count_val_sh,
+            export_val_sh,
+            *training_task_array,
+            *split_task_array
+            )
+        else:
+            workflow = LinearWorkflow(
+            add_r2,
+            add_p6,
+            #add_s2,
+            #add_clm,
+            filter_task_clm,
+            add_sh_valmask,
+            count_val_sh,
+            export_val_sh,
+            *training_task_array,
+            *split_task_array
+            )
+
+        os.makedirs(f'{out_path}/lulc_sample', exist_ok=True)
+        os.makedirs(f'{out_path}/lulc_nosample', exist_ok=True)
+
+       # Check if EOPatch already exists. If so, load it and skip workflow execution.
+        if os.path.isfile(f'{out_path}/lulc_sample/eopatch_{idx}/timestamp.pkl'):
+            print("this file has already been generated, skipping to next patch")
+            patch_s2 = EOPatch.load(f'{out_path}/lulc_sample/eopatch_{idx}', lazy_loading=True)
+            break
+        elif os.path.isfile(f'{out_path}/lulc_nosample/eopatch_{idx}/timestamp.pkl'):
+            print("this file has already been generated, skipping to next patch")
+            patch_s2 = EOPatch.load(f'{out_path}/lulc_nosample/eopatch_{idx}', lazy_loading=True)
+            break
+        else:
+            # Perform execution of defined workflow.
+            try:
+                results_s2 = workflow.execute(extra_params)
+                patch_s2 = list(results_s2.values())[-1]
+
+                min_valid = np.amin(patch_s2.mask_timeless['VALID_COUNT_SH'])
+                min_days = datetime.date(
+                    int(start_date.split('-')[0]),
+                    int(start_date.split('-')[1]),
+                    int(start_date.split('-')[2])
                 )
-                
-                add_p6 = SentinelHubWCSInput(
-                    layer='FOSS4G_P6',
-                    instance_id = '1cad1239-abdf-4dc5-ae79-fe129b926ae2',
-                    feature=(FeatureType.DATA, 'P6'),
-                    resx=f'{resolution}m',  # resolution x
-                    resy=f'{resolution}m',  # resolution y
-                    maxcc=maxcc,
-                    time_difference=datetime.timedelta(hours=hour_diff)
+
+                max_days = datetime.date(
+                    int(end_date.split('-')[0]),
+                    int(end_date.split('-')[1]),
+                    int(end_date.split('-')[2])
                 )
-                
-                # add_s2 = S2L1CWCSInput(
-                #     layer='BANDS-S2-L1C',
-                #     instance_id = '75afd1bc-8dba-45c3-a88a-782d39066bc3',
-                #     feature=(FeatureType.DATA, 'BANDS'),  # save under name 'BANDS'
-                #     custom_url_params={CustomUrlParam.EVALSCRIPT: custom_script},  # custom url for 6 specific bands
-                #     resx=f'{resolution}m',  # resolution x
-                #     resy=f'{resolution}m',  # resolution y
-                #     maxcc=maxcc,  # maximum allowed cloud cover of original ESA tiles
-                #     time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
-            
-                # 2. Run SentinelHub's cloud detector
-                # (cloud detection is performed at 160m resolution
-                # and the resulting cloud probability map and mask
-                # are upscaled to EOPatch's resolution)
-                # Check whether this is really necessary or not, and if so, train new cloud detection model
-                # cloud_classifier = get_s2_pixel_cloud_detector(threshold=cloud_threshold,
-                #                                                average_over=2,
-                #                                                dilation_size=1,
-                #                                                all_bands=False)
-                # add_clm = AddCloudMaskTask(cloud_classifier,
-                #                            'BANDS-S2CLOUDLESS',
-                #                            cm_size_y='160m',
-                #                            cm_size_x='160m',
-                #                            cmask_feature='CLM',
-                #                            cprobs_feature='CLP')
-            
-                # Request Sentinel-1 Data Raw bands.
-                # add_S1 = SentinelHubWCSInput(
-                #   layer='BANDS-S1-IW',
-                #   data_source=DataSource.SENTINEL1_IW,
-                #   resx=f'{resolution}m',
-                #   resy=f'{resolution}m',
-                #   time_difference=hour_diff)
-            
-                # Request Sentinel-1 Data RGB False Color band combination.
-                # add_S1_truecolor = SentinelHubWCSInput(
-                #   layer='TRUE-COLOR-S1-IW',
-                #   data_source=DataSource.SENTINEL1_IW,
-                #   time_difference=hour_diff)
-            
-                # TASKS FOR CALCULATING NEW FEATURES
-                # NDVI: (B08 - B04)/(B08 + B04)
-                # NDWI: (B03 - B08)/(B03 + B08)
-                # NORM: sqrt(B02^2 + B03^2 + B04^2 + B08^2 + B11^2 + B12^2)
-            
-                # 3. Add additional band combinations like ndvi, ndwi and euclidian Norm
-                # add_ndvi = S2L1CWCSInput(
-                #    layer='NDVI',
-                #    time_difference=datetime.timedelta(hours=hour_diff))
-                # add_ndwi = S2L1CWCSInput(
-                #    layer='NDWI',
-                #    time_difference=datetime.timedelta(hours=hour_diff))
-            
-                # 4. Filter task to be used for gif generation (a gif with clouds isn't very pretty, nor useful)
-                filter_task_clm = SimpleFilterTask((FeatureType.MASK, 'CLM'), MaxCCPredicate(maxcc=0.05))
-            
-                # 5. Validate pixels using SentinelHub's cloud detection mask
-                add_sh_valmask = AddValidDataMaskTask(SentinelHubValidData(), 'IS_VALID')
-            
-                # If using multiple datasets, they may need to be coregistered to one another.
-                # s2_temporal_coregistration = ThunderRegistration((FeatureType.DATA,index))
-                # s1_temporal_coregistration = ThunderRegistration((FeatureType.DATA,'BANDS-S1-IW'))
-            
-                # 6. Count number of valid observations per pixel using valid data mask
-                count_val_sh = CountValid('IS_VALID', 'VALID_COUNT_SH')
-                rshape = (FeatureType.MASK, 'IS_VALID')
-            
-                # 7. Prepare task to burn training data and its training/test split into the EOPatch
-                training_task_array = []
-                for el, val in zip(training_array, training_val):
-                    training_task_array.append(VectorToRaster(
-                        raster_feature=(FeatureType.MASK_TIMELESS, 'LULC'),
-                        vector_input=el,
-                        values=val,
-                        raster_shape=rshape))
-            
-                split_task_array = []
-                for el, val in zip(split_array, [1, 2]):
-                    split_task_array.append(VectorToRaster(
-                        raster_feature=(FeatureType.DATA_TIMELESS, 'SPLIT'),
-                        vector_input=el,
-                        values=val,
-                        raster_shape=rshape))
-            
-                # 8. Export valid pixel count to tiff file
-                export_val_sh = ExportToTiff((FeatureType.MASK_TIMELESS, 'VALID_COUNT_SH'))
-            
-                extra_params = {}
-                extra_params[export_val_sh] = {'filename':f'/{out_path}/valid_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'}
-            
-                # 9. define additional parameters of the workflow
-                extra_params[add_r2] = {'bbox': bbox, 'time_interval': time_interval}
-                extra_params[add_p6] = {'bbox': bbox, 'time_interval': time_interval}
-                #extra_params[add_s2] = {'bbox': bbox, 'time_interval': time_interval}
-            
-                # 9. Declare workflow
-                if gif:
-                    workflow = LinearWorkflow(
-                    add_r2,
-                    add_p6,
-                    #add_s2,
-                    #add_clm,
-                    #filter_task_clm,
-                    add_sh_valmask,
-                    count_val_sh,
-                    export_val_sh,
-                    *training_task_array,
-                    *split_task_array
-                    )
-                else:
-                    workflow = LinearWorkflow(
-                    add_r2,
-                    add_p6,
-                    #add_s2,
-                    #add_clm,
-                    filter_task_clm,
-                    add_sh_valmask,
-                    count_val_sh,
-                    export_val_sh,
-                    *training_task_array,
-                    *split_task_array
-                    )
-            
-                os.makedirs(f'{out_path}/lulc_sample', exist_ok=True)
-                os.makedirs(f'{out_path}/lulc_nosample', exist_ok=True)
-                
-               # Check if EOPatch already exists. If so, load it and skip workflow execution.
-                if os.path.isfile(f'{out_path}/lulc_sample/eopatch_{idx}/timestamp.pkl'):
-                    print("this file has already been generated, skipping to next patch")
-                    patch_s2 = EOPatch.load(f'{out_path}/lulc_sample/eopatch_{idx}', lazy_loading=True)
-                    break
-                elif os.path.isfile(f'{out_path}/lulc_nosample/eopatch_{idx}/timestamp.pkl'):
-                    print("this file has already been generated, skipping to next patch")
-                    patch_s2 = EOPatch.load(f'{out_path}/lulc_nosample/eopatch_{idx}', lazy_loading=True)
-                    break
-                else:
-                    # Perform execution of defined workflow.
-                    try:
-                        results_s2 = workflow.execute(extra_params)
-                        patch_s2 = list(results_s2.values())[-1]
-            
-                        min_valid = np.amin(patch_s2.mask_timeless['VALID_COUNT_SH'])
-                        min_days = datetime.date(
-                            int(start_date.split('-')[0]),
-                            int(start_date.split('-')[1]),
-                            int(start_date.split('-')[2])
-                        )
-            
-                        max_days = datetime.date(
-                            int(end_date.split('-')[0]),
-                            int(end_date.split('-')[1]),
-                            int(end_date.split('-')[2])
-                        )
-                        # Check the smallest temporal sequence of valid data
-                        # If it is smaller than the number of interpolation/aggregation intervals, reduce the s2cloudless
-                        # algorithm sensitivity (e.g. likely to occur over bright surfaces like sand or salt).
-                        # if min_valid < round((max_days - min_days).days / interp_interval):
-                        #     cloud_threshold = 0.8
-                        #     print(f'Warning: An abnormally high amount of invalid pixels ({min_valid}) '
-                        #           f'were detected in certain parts of the eopatch, '
-                        #           f'retrying with a higher cloud detection threshold...')
-                        #     continue
-                        try:
-                            print("number of training pixels in patch:", np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 1))
-                            print("number of validation pixels in patch:",
-                                  np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 2))
-            
-                            if gif:
-                                # Create temporal Giff of the NDVI time series inside the EOPatch
-                                animated_gif=MakeGif(size=(960,1200))
-                                animated_gif.add(patch_s2.data['R2'],label=patch_s2.timestamp,band=6)
-                                animated_gif.save(f'/{out_path}/gif_r2.gif', fps=1)
-                                
-                                animated_gif=MakeGif(size=(960,1200))
-                                animated_gif.add(patch_s2.data['P6'],label=patch_s2.timestamp,band=6)
-                                animated_gif.save(f'/{out_path}/gif_p6.gif', fps=1)
-                                
-                            else:
-                                # If no training data is available for the given EOPatch,
-                                # delete the MASK_TIMELESS features LULC and SPLIT
-                                if np.count_nonzero(patch_s2.mask_timeless['LULC']) == 0:
-                                    patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC', )
-                                    patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT', )
-                                    if save_choice:
-                                        patch_s2.save(f'{out_path}/lulc_nosample/eopatch_{idx}',
-                                                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
-                                        # Zip the saved EOPatch for additional space saving. Not advised
-                                        # shutil.make_archive(f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}','zip',
-                                        #                   f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}')
-                                        # shutil.rmtree(f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}')
-                                        del results_s2
-                                    else:
-                                        eopatches.append(results_s2[list(results_s2.keys())[-1]])
-                                else:
-                                    if save_choice:
-                                        patch_s2.save(f'{out_path}/lulc_sample/eopatch_{idx}',
-                                                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
-                                        del results_s2
-                                    else:
-                                        eopatches.append(results_s2[list(results_s2.keys())[-1]])
-            
-                        except KeyError:
+                # Check the smallest temporal sequence of valid data
+                # If it is smaller than the number of interpolation/aggregation intervals, reduce the s2cloudless
+                # algorithm sensitivity (e.g. likely to occur over bright surfaces like sand or salt).
+                # if min_valid < round((max_days - min_days).days / interp_interval):
+                #     cloud_threshold = 0.8
+                #     print(f'Warning: An abnormally high amount of invalid pixels ({min_valid}) '
+                #           f'were detected in certain parts of the eopatch, '
+                #           f'retrying with a higher cloud detection threshold...')
+                #     continue
+                try:
+                    print("number of training pixels in patch:", np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 1))
+                    print("number of validation pixels in patch:",
+                          np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 2))
+
+                    if gif:
+                        # Create temporal Giff of the NDVI time series inside the EOPatch
+                        animated_gif=MakeGif(size=(960,1200))
+                        animated_gif.add(patch_s2.data['R2'],label=patch_s2.timestamp,band=6)
+                        animated_gif.save(f'/{out_path}/gif_r2.gif', fps=1)
+
+                        animated_gif=MakeGif(size=(960,1200))
+                        animated_gif.add(patch_s2.data['P6'],label=patch_s2.timestamp,band=6)
+                        animated_gif.save(f'/{out_path}/gif_p6.gif', fps=1)
+
+                    else:
+                        # If no training data is available for the given EOPatch,
+                        # delete the MASK_TIMELESS features LULC and SPLIT
+                        if np.count_nonzero(patch_s2.mask_timeless['LULC']) == 0:
+                            patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC', )
+                            patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT', )
                             if save_choice:
                                 patch_s2.save(f'{out_path}/lulc_nosample/eopatch_{idx}',
                                               overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
@@ -931,49 +1006,59 @@ def load_eopatch(bbox_splitters, time_interval, training_array, split_array, tra
                                 del results_s2
                             else:
                                 eopatches.append(results_s2[list(results_s2.keys())[-1]])
-            
-                        print("patch summary:%s" % patch_s2)
-                        print(f'eopatch_{idx}')
-                        print(f'row-{info["index_x"]}')
-                        print(f'col-{info["index_y"]}')
-                        print("has been processed, moving to next patch")
-            
-                    except MemoryError:
-                        # TODO: Find a good way to handle MemoryError rather than simply retrying
-                        # TODO: Add Jira Ticket
-                        print(f'Sentinel data harvesting failed for eopatch {idx} due to a MemoryError, trying again')
-                        print("Exception in user code:")
-                        print('-' * 60)
-                        traceback.print_exc(file=sys.stdout)
-                        print('-' * 60)
-                        attempts += 1
-                        continue
-                    except requests.RequestException as err:
-                        print(f'Sentinel data harvesting failed for eopatch {idx} due to a HTTP Request error '
-                              f'with code {err.response.status_code}, trying again')
-                        print("Exception in user code:")
-                        print('-' * 60)
-                        traceback.print_exc(file=sys.stdout)
-                        print('-' * 60)
-                        attempts += 1
-                        continue
-            
-                    # Last check to see whether there are enough requested S2 datatakes
-                    # (at least more than half of the number of interpolation intervals in the year)
-                    # If not the maximum tolerated cloud cover is increased by 0.1 and the EOPatch is reprocessed
-                    d1 = datetime.datetime.strptime(start_date, '%Y-%m-%d')
-                    d2 = datetime.datetime.strptime(end_date, '%Y-%m-%d')
-                    diff = (d2 - d1).days / (interp_interval * 2)
-                    print("number of dates harvested:", len(patch_s2.timestamp))
-                    if len(patch_s2.timestamp) < diff and maxcc < 0.9:
-                        maxcc = maxcc + 0.1
-                        # TODO: Consider requesting a longer "time_interval" and perform a "time_difference" across years
-                        # TODO: to ensure that the interpolation operation would still produce the same amount of input features
-                        # TODO: OR Request Sentinel-1 data (but how to fuse S1+S2 to make one single input feature stack?)
-                        # TODO: add missing JIRA ticket
-                        attempts += 1
-                        continue
-                    break
+                        else:
+                            if save_choice:
+                                patch_s2.save(f'{out_path}/lulc_sample/eopatch_{idx}',
+                                              overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+                                del results_s2
+                            else:
+                                eopatches.append(results_s2[list(results_s2.keys())[-1]])
+
+                except KeyError:
+                    if save_choice:
+                        patch_s2.save(f'{out_path}/lulc_nosample/eopatch_{idx}',
+                                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+                        # Zip the saved EOPatch for additional space saving. Not advised
+                        # shutil.make_archive(f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}','zip',
+                        #                   f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}')
+                        # shutil.rmtree(f'{storage_dir}/{project_name}/lulc_nosample/eopatch_{idx}')
+                        del results_s2
+                    else:
+                        eopatches.append(results_s2[list(results_s2.keys())[-1]])
+
+                print("patch summary:%s" % patch_s2)
+                print(f'eopatch_{idx}')
+                print(f'row-{info["index_x"]}')
+                print(f'col-{info["index_y"]}')
+                print("has been processed, moving to next patch")
+
+            except:
+                # TODO: Find a good way to handle MemoryError rather than simply retrying
+                # TODO: Add Jira Ticket
+                print(f'Sentinel data harvesting failed for eopatch {idx} due to a MemoryError, trying again')
+                print("Exception in user code:")
+                print('-' * 60)
+                traceback.print_exc(file=sys.stdout)
+                print('-' * 60)
+                attempts += 1
+                continue
+
+            # Last check to see whether there are enough requested S2 datatakes
+            # (at least more than half of the number of interpolation intervals in the year)
+            # If not the maximum tolerated cloud cover is increased by 0.1 and the EOPatch is reprocessed
+            d1 = datetime.datetime.strptime(start_date, '%Y-%m-%d')
+            d2 = datetime.datetime.strptime(end_date, '%Y-%m-%d')
+            diff = (d2 - d1).days / (interp_interval * 2)
+            print("number of dates harvested:", len(patch_s2.timestamp))
+            if len(patch_s2.timestamp) < diff and maxcc < 0.9:
+                maxcc = maxcc + 0.1
+                # TODO: Consider requesting a longer "time_interval" and perform a "time_difference" across years
+                # TODO: to ensure that the interpolation operation would still produce the same amount of input features
+                # TODO: OR Request Sentinel-1 data (but how to fuse S1+S2 to make one single input feature stack?)
+                # TODO: add missing JIRA ticket
+                attempts += 1
+                continue
+            break
                 
     return patch_s2
 
@@ -984,18 +1069,27 @@ gif = args.gif
 time_range =  args.time_range
 n_procs = args.n_procs
 
+#p = Pool(n_procs, maxtasksperchild=1)
+#task = ThreadWithLogAndControls(target=load_eopatch, args=(p,), name="harvest EOPatches over AOI")
+#task.control_panel()
+
 for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-    range_idx = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
     load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx], 
                                  split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}')
     multiprocess(n_procs, range_idx, load_eopatch_multi)
+    #for idx in range_idx:
+    #    load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
+    #                             split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx)
 
 # Print any produced output, whether eopatch extents, or gif produced.
 # Probably best to read from filesystem saved outputs like the gif or the validity raster
 
 
 
-# Interpolate the loaded EOPatches
+
+# # Interpolate the loaded EOPatches
 # Finding a new way of aggregating data instead of interpolation would be interesting for two reasons:
 # - Interpolation requires cloud masking, which would we have to work on to apply to LISS-III.
 # - Temporal data aggregation is much less computationally intensive than an interpolation.
@@ -1007,7 +1101,7 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 # It would give you an idea of what temporal aggregation means at least. Note that a combination of metrics can be used (e.g. median of one index vs variance of another).
 # 
 
-# In[ ]:
+# In[3]:
 
 
 # This implementation is an interpolation and not an aggregation, but we could consider switching that.
@@ -1201,7 +1295,7 @@ while attempts < 5:
     break
 
 
-# Train a RF model for the respective AOIs
+# # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
 # - RNN or CNN using tensorflow (I don't really see it happening as we would need to recollect new training data).
 # - use SHAP ( https://github.com/slundberg/shap ) to perform a ML model explainability analysis. 
@@ -1257,7 +1351,8 @@ joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
 #    shap_explainer(model, features_train, out_path)
 
 
-# Plot test results
+
+# # Plot test results
 # 
 
 # In[ ]:
@@ -1484,7 +1579,8 @@ plt.show()
 pbar = tqdm(total=len(bbox_splitter.bbox_list))
 
 
-# Predict EOPatches using trained model
+
+# # Predict EOPatches using trained model
 # 
 
 # In[ ]:
@@ -1557,7 +1653,7 @@ else:
         break
 
 
-# Plot a web map. 
+# # Plot a web map 
 # Some examples of implementation using ipywidget and ipyleaflet. 
 # 
 
@@ -1638,7 +1734,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
     #print(out_path)
     
     cmd = 'gdaldem color-relief %s /mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/col.txt %s -of Gtiff'%(tiff,out_vrt)
-    get_ipython().system('{cmd}')
+    get_ipython().system(u'{cmd}')
     """cmd1 = 'gdalwarp -of GTiff -overwrite -s_srs %s -t_srs %s %s %s'%(src_crs, dst_crs, out_vrt, out_vrt1)
     !{cmd1}
     os.remove(out_vrt)
@@ -1680,7 +1776,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
         #nodata = src.nodata
     
     cmd2 = "convert %s -transparent black -fuzz 11%% %s"%(out_path, out_jpg)
-    get_ipython().system('{cmd2}')
+    get_ipython().system(u'{cmd2}')
 
     # Overlay raster called img using add_child() function (opacity and bounding box set)
     #m.add_child( folium.raster_layers.ImageOverlay(img[0], opacity=1, colormap=newcmp,
