@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# # Imports and other initializations
+# Imports and other initializations
 # 
 
 # In[1]:
@@ -20,6 +20,8 @@ from enum import Enum
 import datetime
 from functools import partial
 from multiprocess import Pool
+from oauthlib.oauth2 import BackendApplicationClient
+from requests_oauthlib import OAuth2Session
 
 from tqdm import tqdm
 import requests
@@ -36,6 +38,7 @@ from matplotlib.colors import ListedColormap
 import matplotlib.pyplot as plt
 import matplotlib.animation as anim
 from sidecar import Sidecar
+
 
 # Array processing libraries
 import numpy as np
@@ -105,7 +108,7 @@ args = easydict.EasyDict({
   }})
 
 
-# # Various utilities required by the notebook
+# Various utilities required by the notebook
 # 
 
 # In[2]:
@@ -550,7 +553,7 @@ def plot_image(image, factor=1):
         plt.imshow(image)
 
 
-# # Load AOI geometry and split it into a processing grid.
+# Load AOI geometry and split it into a processing grid.
 # 
 
 # In[3]:
@@ -616,7 +619,7 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     # Plot the processing grid produced on ipyleaflet
 
 
-# # Split Training dataset into a training and test parts
+# Split Training dataset into a training and test parts
 # 
 
 # In[4]:
@@ -690,8 +693,7 @@ for idx, training in zip(country_list, trainings):
     # Plot the training data distribution on ipyleaflet
 
 
-# # Plot the processing grids
-# ## Load OSM map centered on AOIs
+# Load OSM map centered on AOIs
 
 # In[5]:
 
@@ -705,7 +707,7 @@ center = tuple(reversed(overall_centroid_of_all_aois))
 m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
 
 
-# ## Display the processing grids over the two AOIs
+# # Display the processing grids over the two AOIs
 
 # In[6]:
 
@@ -723,13 +725,17 @@ m.add_layer(ger_geo_data)
 m
 
 
-# # Load Satellite Imagery Collections
+# Create token to request from Sentinelhub API
+
+# Load Satellite Imagery Collections
 # 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
 # 
 
-# In[8]:
+# In[9]:
 
+
+from sentinelhub import DataSource
 
 def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
                  interp_interval=30, save_choice=True, cloud_threshold=0.4, maxcc=0.8, row=10, col=10,
@@ -743,12 +749,12 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
     info = bbox_splitter.info_list[idx]
     bbox = bbox_splitter.bbox_list[idx]
 
-    #print(info)
-    #print(f'bbox index to process:')
-    #print(f'uuid: {idx}')
-    #print(f'bbox splitter dimensions: {row}x{col} ')
-    #print(f'index_x: {info["index_x"]}')
-    #print(f'index_y: {info["index_y"]}')
+    print(info)
+    print(f'bbox index to process:')
+    print(f'uuid: {idx}')
+    print(f'bbox splitter dimensions: {row}x{col} ')
+    print(f'index_x: {info["index_x"]}')
+    print(f'index_y: {info["index_y"]}')
 
     # While loop necessary to re-perform requests with different parameters.
     # One case is if too little data is available with current parameters.
@@ -758,58 +764,28 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         # TASK FOR BAND DATA
         # 1. add a request for B(B02), G(B03), R(B04), NIR (B08), SWIR1(B11), SWIR2(B12)
         # from default layer 'ALL_BANDS' at 10m resolution
-        custom_script = 'return [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12];'
-
-        width = round((bbox.max_x-bbox.min_x)/resolution)
-        height = round((bbox.max_y-bbox.min_y)/resolution)
+        custom_script_s2 = 'return [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12];'
+ 
+        add_p6 = SentinelHubWCSInput(
+        layer='FOSS4G_P6',
+        data_source=DataSource.DSS10,#-b854d829-d016-4bd3-8bcd-bdbd49ebdefe,
+        instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
+        feature=(FeatureType.DATA, 'P6'),
+        resx='23.5m',
+        resy='23.5m',
+        maxcc=maxcc,
+        time_difference=datetime.timedelta(hours=hour_diff))
         
-        # construct request
-        url = f'https://services.sentinel-hub.com/ogc/wms/1cad1239-abdf-4dc5-ae79-fe129b926ae2'
-        params_r2 = {'service': 'WMS', 
-                  'request': 'GetMap',
-                  'layers': 'FOSS4G_R2',
-                  'bbox': f'{bbox.min_x},{bbox.max_y},{bbox.max_x},{bbox.min_y}',
-                  'time': time_interval[0] + '/' + time_interval[1],
-                  'width': width,
-                  'height': height,
-                  'format': 'image/tiff;depth=32f',
-                  'crs': bbox.crs,
-                  'version': '1.3.0',
-                  }
-        
-        params_p6 = {'service': 'WMS', 
-                  'request': 'GetMap',
-                  'layers': 'FOSS4G_P6',
-                  'bbox': f'{bbox.min_x},{bbox.max_y},{bbox.max_x},{bbox.min_y}',
-                  'time': time_interval[0] + '/' + time_interval[1],
-                  'width': width,
-                  'height': height,
-                  'format': 'image/tiff;depth=32f',
-                  'crs': bbox.crs,
-                  'version': '1.3.0',
-                  }
-
-        response_r2 = requests.get(url, params_r2)
-        response_p6 = requests.get(url, params_p6)
-                
-        img_r2 = decode_image(response_r2.content)
-        #timestamp_size_r2 = img_r2.shape[2] / 4
-        img_p6 = decode_image(response_p6.content)
-        #timestamp_size_p6 = img_p6.shape[2] / 4
-        
-        os.makedirs(f'{out_path}/r2', exist_ok=True)
-        os.makedirs(f'{out_path}/p6', exist_ok=True)
-        
-        out_r2 = open(f'{out_path}/r2/{info["index_x"]}_{info["index_y"]}.tif', 'wb')
-        out_r2.write(img_r2)
-        out_r2.close()
-        
-        out_p6 = open(f'{out_path}/p6/{info["index_x"]}_{info["index_y"]}.tif', 'wb')
-        out_p6.write(img_p6)
-        out_p6.close()
-        
-        add_r2 = ImportFromTiff(feature=(FeatureType.DATA, 'R2'), folder=f'{out_path}/r2')
-        add_p6 = ImportFromTiff(feature=(FeatureType.DATA, 'P6'), folder=f'{out_path}/p6')
+        add_r2 = SentinelHubWCSInput(
+        layer='FOSS4G_R2',
+        data_source=DataSource.DSS10,#-18353a79-c92d-4519-a523-4f4c0316a080,
+        instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
+        feature=(FeatureType.DATA, 'R2'),
+        resx='23.5m',
+        resy='23.5m',
+        maxcc=maxcc,
+        time_difference=datetime.timedelta(hours=hour_diff)
+        )
 
         # add_s2 = S2L1CWCSInput(
         #     layer='BANDS-S2-L1C',
@@ -1078,18 +1054,17 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
     range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
     load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx], 
                                  split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}')
-    multiprocess(n_procs, range_idx, load_eopatch_multi)
-    #for idx in range_idx:
-    #    load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
-    #                             split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx)
+    #multiprocess(n_procs, range_idx, load_eopatch_multi)
+    for idx in range_idx:
+        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
+                                 split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx)
 
 # Print any produced output, whether eopatch extents, or gif produced.
 # Probably best to read from filesystem saved outputs like the gif or the validity raster
 
 
 
-
-# # Interpolate the loaded EOPatches
+# Interpolate the loaded EOPatches
 # Finding a new way of aggregating data instead of interpolation would be interesting for two reasons:
 # - Interpolation requires cloud masking, which would we have to work on to apply to LISS-III.
 # - Temporal data aggregation is much less computationally intensive than an interpolation.
@@ -1101,7 +1076,7 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 # It would give you an idea of what temporal aggregation means at least. Note that a combination of metrics can be used (e.g. median of one index vs variance of another).
 # 
 
-# In[3]:
+# In[ ]:
 
 
 # This implementation is an interpolation and not an aggregation, but we could consider switching that.
@@ -1295,7 +1270,7 @@ while attempts < 5:
     break
 
 
-# # Train a RF model for the respective AOIs
+# Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
 # - RNN or CNN using tensorflow (I don't really see it happening as we would need to recollect new training data).
 # - use SHAP ( https://github.com/slundberg/shap ) to perform a ML model explainability analysis. 
@@ -1351,8 +1326,7 @@ joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
 #    shap_explainer(model, features_train, out_path)
 
 
-
-# # Plot test results
+# Plot test results
 # 
 
 # In[ ]:
@@ -1579,8 +1553,7 @@ plt.show()
 pbar = tqdm(total=len(bbox_splitter.bbox_list))
 
 
-
-# # Predict EOPatches using trained model
+# Predict EOPatches using trained model
 # 
 
 # In[ ]:
@@ -1653,7 +1626,7 @@ else:
         break
 
 
-# # Plot a web map 
+# Plot a web map. 
 # Some examples of implementation using ipywidget and ipyleaflet. 
 # 
 
@@ -1734,7 +1707,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
     #print(out_path)
     
     cmd = 'gdaldem color-relief %s /mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/col.txt %s -of Gtiff'%(tiff,out_vrt)
-    get_ipython().system(u'{cmd}')
+    get_ipython().system('{cmd}')
     """cmd1 = 'gdalwarp -of GTiff -overwrite -s_srs %s -t_srs %s %s %s'%(src_crs, dst_crs, out_vrt, out_vrt1)
     !{cmd1}
     os.remove(out_vrt)
@@ -1776,7 +1749,7 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
         #nodata = src.nodata
     
     cmd2 = "convert %s -transparent black -fuzz 11%% %s"%(out_path, out_jpg)
-    get_ipython().system(u'{cmd2}')
+    get_ipython().system('{cmd2}')
 
     # Overlay raster called img using add_child() function (opacity and bounding box set)
     #m.add_child( folium.raster_layers.ImageOverlay(img[0], opacity=1, colormap=newcmp,
