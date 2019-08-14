@@ -6,6 +6,7 @@ import functools
 import itertools as it
 import mimetypes
 from enum import Enum, EnumMeta
+from aenum import extend_enum
 
 import utm
 import pyproj
@@ -111,7 +112,21 @@ class _OrbitDirection(Enum):
     BOTH = 'both'
 
 
-class DataSource(Enum):
+
+class DataSourceMeta(EnumMeta):
+    """ Metaclass used for building DataSource Enum class
+    """
+    def __call__(cls, value, *args, **kwargs):
+        """ This is executed whenever DataSource('something') is called
+        """
+        try:
+            return super().__call__(value, *args, **kwargs)
+        except ValueError:
+            extend_enum(cls, value, value)
+            return super().__call__(value, *args, **kwargs)
+
+
+class DataSource(Enum, metaclass=DataSourceMeta):
     """ Enum constant class for types of satellite data
 
     Supported types are SENTINEL2_L1C, SENTINEL2_L2A, LANDSAT8, SENTINEL1_IW, SENTINEL1_EW, SENTINEL1_EW_SH,
@@ -159,6 +174,8 @@ class DataSource(Enum):
         :return: Product identifier for WFS
         :rtype: str
         """
+        if "DSS10" in data_source.name:
+            return data_source.name
         is_eocloud = SHConfig().is_eocloud_ogc_url()
         return {
             cls.SENTINEL2_L1C: 'S2.TILE',

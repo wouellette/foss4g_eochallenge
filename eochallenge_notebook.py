@@ -730,13 +730,19 @@ m
 # Load Satellite Imagery Collections
 # 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
-# 
 
-# In[9]:
+# In[7]:
 
 
 from sentinelhub import DataSource
+ds_p6 = DataSource('DSS10-b854d829-d016-4bd3-8bcd-bdbd49ebdefe')
+ds_r2 = DataSource('DSS10-18353a79-c92d-4519-a523-4f4c0316a080')
 
+
+# In[7]:
+
+
+from eolearn.io import S2L1CWCSInput
 def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
                  interp_interval=30, save_choice=True, cloud_threshold=0.4, maxcc=0.8, row=10, col=10,
                  hour_diff=73, resolution=10):
@@ -756,6 +762,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
     print(f'index_x: {info["index_x"]}')
     print(f'index_y: {info["index_y"]}')
 
+
     # While loop necessary to re-perform requests with different parameters.
     # One case is if too little data is available with current parameters.
     # Other case is if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
@@ -768,7 +775,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
  
         add_p6 = SentinelHubWCSInput(
         layer='FOSS4G_P6',
-        data_source=DataSource.DSS10,#-b854d829-d016-4bd3-8bcd-bdbd49ebdefe,
+        data_source=ds_p6,
         instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
         feature=(FeatureType.DATA, 'P6'),
         resx='23.5m',
@@ -778,7 +785,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         
         add_r2 = SentinelHubWCSInput(
         layer='FOSS4G_R2',
-        data_source=DataSource.DSS10,#-18353a79-c92d-4519-a523-4f4c0316a080,
+        data_source=ds_r2,
         instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
         feature=(FeatureType.DATA, 'R2'),
         resx='23.5m',
@@ -787,15 +794,15 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         time_difference=datetime.timedelta(hours=hour_diff)
         )
 
-        # add_s2 = S2L1CWCSInput(
-        #     layer='BANDS-S2-L1C',
-        #     instance_id = '75afd1bc-8dba-45c3-a88a-782d39066bc3',
-        #     feature=(FeatureType.DATA, 'BANDS'),  # save under name 'BANDS'
-        #     custom_url_params={CustomUrlParam.EVALSCRIPT: custom_script},  # custom url for 6 specific bands
-        #     resx=f'{resolution}m',  # resolution x
-        #     resy=f'{resolution}m',  # resolution y
-        #     maxcc=maxcc,  # maximum allowed cloud cover of original ESA tiles
-        #     time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
+        add_s2 = S2L1CWCSInput(
+             layer='BANDS-S2-L1C',
+             instance_id = '75afd1bc-8dba-45c3-a88a-782d39066bc3',
+             feature=(FeatureType.DATA, 'BANDS'),  # save under name 'BANDS'
+             #custom_url_params={CustomUrlParam.EVALSCRIPT: custom_script},  # custom url for 6 specific bands
+             resx=f'{resolution}m',  # resolution x
+             resy=f'{resolution}m',  # resolution y
+             maxcc=maxcc,  # maximum allowed cloud cover of original ESA tiles
+             time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
 
         # 2. Run SentinelHub's cloud detector
         # (cloud detection is performed at 160m resolution
@@ -880,7 +887,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         # 9. define additional parameters of the workflow
         extra_params[add_r2] = {'bbox': bbox, 'time_interval': time_interval}
         extra_params[add_p6] = {'bbox': bbox, 'time_interval': time_interval}
-        #extra_params[add_s2] = {'bbox': bbox, 'time_interval': time_interval}
+        extra_params[add_s2] = {'bbox': bbox, 'time_interval': time_interval}
         
         print('test')
 
@@ -902,7 +909,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
             workflow = LinearWorkflow(
             add_r2,
             add_p6,
-            #add_s2,
+            add_s2,
             #add_clm,
             filter_task_clm,
             add_sh_valmask,
