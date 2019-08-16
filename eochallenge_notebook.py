@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# Imports and other initializations
+# # Imports and other initializations
 # 
 
 # In[1]:
@@ -105,7 +105,7 @@ args = easydict.EasyDict({
   }})
 
 
-# Various utilities required by the notebook
+# # Various utilities required by the notebook
 # 
 
 # In[2]:
@@ -550,7 +550,7 @@ def plot_image(image, factor=1):
         plt.imshow(image)
 
 
-# Load AOI geometry and split it into a processing grid.
+# # Load AOI geometry and split it into a processing grid.
 # 
 
 # In[3]:
@@ -616,7 +616,7 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     # Plot the processing grid produced on ipyleaflet
 
 
-# Split Training dataset into a training and test parts
+# # Split Training dataset into a training and test parts
 # 
 
 # In[4]:
@@ -690,7 +690,7 @@ for idx, training in zip(country_list, trainings):
     # Plot the training data distribution on ipyleaflet
 
 
-# Load OSM map centered on AOIs
+# # Load OSM map centered on AOIs
 
 # In[5]:
 
@@ -722,9 +722,7 @@ m.add_layer(ger_geo_data)
 m
 
 
-# Create token to request from Sentinelhub API
-
-# Load Satellite Imagery Collections
+# # Load Satellite Imagery Collections
 # 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
 # 
@@ -1060,7 +1058,7 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 
 
 
-# Interpolate the loaded EOPatches
+# # Interpolate the loaded EOPatches
 # Finding a new way of aggregating data instead of interpolation would be interesting for two reasons:
 # - Interpolation requires cloud masking, which would we have to work on to apply to LISS-III.
 # - Temporal data aggregation is much less computationally intensive than an interpolation.
@@ -1266,7 +1264,7 @@ while attempts < 5:
     break
 
 
-# Train a RF model for the respective AOIs
+# # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
 # - RNN or CNN using tensorflow (I don't really see it happening as we would need to recollect new training data).
 # - use SHAP ( https://github.com/slundberg/shap ) to perform a ML model explainability analysis. 
@@ -1322,7 +1320,7 @@ joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
 #    shap_explainer(model, features_train, out_path)
 
 
-# Plot test results
+# # Plot test results
 # 
 
 # In[ ]:
@@ -1549,7 +1547,7 @@ plt.show()
 pbar = tqdm(total=len(bbox_splitter.bbox_list))
 
 
-# Predict EOPatches using trained model
+# # Predict EOPatches using trained model
 # 
 
 # In[ ]:
@@ -1622,7 +1620,7 @@ else:
         break
 
 
-# Plot a web map. 
+# # Plot a web map 
 # Some examples of implementation using ipywidget and ipyleaflet. 
 # 
 
