@@ -4,7 +4,7 @@
 # # Imports and other initializations
 # 
 
-# In[1]:
+# In[2]:
 
 
 # General imports 
@@ -65,8 +65,8 @@ from eolearn.features import LinearInterpolation, SimpleFilterTask
 from eolearn.geometry import PointSamplingTask, VectorToRaster
 from eolearn.io import ExportToTiff, SentinelHubWCSInput
 from eolearn.mask import AddValidDataMaskTask
-from sentinelhub import CRS, BBoxSplitter, WcsRequest
 from eolearn.ml_tools import MorphologicalOperations, MorphologicalStructFactory
+from sentinelhub import CRS, BBoxSplitter, WcsRequest, DataSource
 
 # ML libraries
 import lightgbm as lgb
@@ -108,7 +108,7 @@ args = easydict.EasyDict({
 # # Various utilities required by the notebook
 # 
 
-# In[2]:
+# In[3]:
 
 
 class MaxCCPredicate:
@@ -553,7 +553,7 @@ def plot_image(image, factor=1):
 # # Load AOI geometry and split it into a processing grid.
 # 
 
-# In[3]:
+# In[4]:
 
 
 # The AOI should be in EPSG:4326
@@ -619,7 +619,7 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
 # # Split Training dataset into a training and test parts
 # 
 
-# In[4]:
+# In[5]:
 
 
 
@@ -692,7 +692,7 @@ for idx, training in zip(country_list, trainings):
 
 # # Load OSM map centered on AOIs
 
-# In[5]:
+# In[6]:
 
 
 from shapely.geometry import MultiPoint
@@ -706,7 +706,7 @@ m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
 
 # # Display the processing grids over the two AOIs
 
-# In[6]:
+# In[7]:
 
 
 from ipyleaflet import GeoData
@@ -728,6 +728,14 @@ m
 # 
 
 # In[8]:
+
+
+# Create custom DataSources (note: this requires a patched version of the sentinelhub package )
+ds_p6 = DataSource('DSS10-b854d829-d016-4bd3-8bcd-bdbd49ebdefe')
+ds_r2 = DataSource('DSS10-18353a79-c92d-4519-a523-4f4c0316a080')
+
+
+# In[1]:
 
 
 def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
@@ -761,7 +769,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
  
         add_p6 = SentinelHubWCSInput(
         layer='FOSS4G_P6',
-        data_source=DataSource.DSS10-b854d829-d016-4bd3-8bcd-bdbd49ebdefe,
+        data_source=ds_p6,
         instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
         feature=(FeatureType.DATA, 'P6'),
         resx='23.5m',
@@ -772,7 +780,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         
         add_r2 = SentinelHubWCSInput(
         layer='FOSS4G_R2',
-        data_source=DataSource.DSS10-18353a79-c92d-4519-a523-4f4c0316a080,
+        data_source=ds_r2,
         instance_id='1cad1239-abdf-4dc5-ae79-fe129b926ae2',
         feature=(FeatureType.DATA, 'R2'),
         resx='23.5m',
@@ -1048,10 +1056,10 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
     range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
     load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx], 
                                  split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}')
-    multiprocess(n_procs, range_idx, load_eopatch_multi)
-    #for idx in range_idx:
-    #    load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
-    #                             split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx)
+    #multiprocess(n_procs, range_idx, load_eopatch_multi)
+    for idx in range_idx:
+        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
+                                 split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx)
 
 # Print any produced output, whether eopatch extents, or gif produced.
 # Probably best to read from filesystem saved outputs like the gif or the validity raster
@@ -1070,7 +1078,7 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 # It would give you an idea of what temporal aggregation means at least. Note that a combination of metrics can be used (e.g. median of one index vs variance of another).
 # 
 
-# In[3]:
+# In[ ]:
 
 
 # This implementation is an interpolation and not an aggregation, but we could consider switching that.

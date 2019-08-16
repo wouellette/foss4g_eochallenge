@@ -62,3 +62,7 @@ As an example, you can copy the **[pre-commit](./pre-commit)** file (main conten
     # add the generated file to the staging area of Git
     git add eochallenge_notebook.py
 ```
+
+## Misc
+
+The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) file to overwrite the original file in the package.     
