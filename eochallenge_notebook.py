@@ -20,11 +20,8 @@ from enum import Enum
 import datetime
 from functools import partial
 from multiprocess import Pool
-from oauthlib.oauth2 import BackendApplicationClient
-from requests_oauthlib import OAuth2Session
 
 from tqdm import tqdm
-import requests
 import easydict
 
 # Interactive multithreading
