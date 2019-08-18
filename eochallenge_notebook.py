@@ -29,7 +29,7 @@ from nbmultitask import ThreadWithLogAndControls
 from time import sleep
 
 # Imports relative to web mapping and displaying results
-from ipyleaflet import Map, basemaps, ImageOverlay, TileLayer
+from ipyleaflet import Map, basemaps, ImageOverlay, TileLayer, GeoData
 import matplotlib as mpl
 from matplotlib.colors import ListedColormap
 import matplotlib.pyplot as plt
@@ -48,7 +48,7 @@ from rasterio.io import MemoryFile
 import utm
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon,MultiPoint
 
 # EO-learn/Sentinelhub imports
 from eolearn.core import (
@@ -569,6 +569,7 @@ aoi['geometry'] = aoi['geometry'].to_crs(epsg=3857).buffer(bufsize).to_crs(epsg=
 
 country_list = ['Germany','Romania']
 bbox_splitter_list = []
+gdfs = [] # an array of GeoDataFrames to be plotted later
 # Assuming there are two AOIs: one for Romania, one for Germany
 for idx, aoi_el in zip(country_list, aoi.geometry):
     
@@ -614,14 +615,31 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     gdf.head()
 
     gdf.to_file(f'{out_path}/aoi/aoi_bbox_4326_{idx}_r{row}_c{col}_{len(bbox_splitter.bbox_list)}.shp')
-    
-    # Plot the processing grid produced on ipyleaflet
+    gdfs.append(gdf)  
+   
+
+
+# In[6]:
+
+
+# Plot the processing grid produced on ipyleaflet
+aoi_centroids_mp = MultiPoint([geom.centroid.coords[0] for geom in aoi.geometry])
+overall_centroid_of_all_aois = aoi_centroids_mp.centroid.coords[0]
+print("overall_centroid_of_all_aois is: ",overall_centroid_of_all_aois)
+zoom = 5 #OSM zoom level
+center = tuple(reversed(overall_centroid_of_all_aois))
+m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
+
+for gdf in gdfs:
+    m.add_layer(GeoData(geo_dataframe = gdf.to_crs({'init': 'epsg:4326'})))
+
+m    
 
 
 # # Split Training dataset into a training and test parts
 # 
 
-# In[4]:
+# In[7]:
 
 
 
@@ -692,44 +710,12 @@ for idx, training in zip(country_list, trainings):
     # Plot the training data distribution on ipyleaflet
 
 
-# # Load OSM map centered on AOIs
-
-# In[5]:
-
-
-from shapely.geometry import MultiPoint
-aoi_centroids_mp = MultiPoint([geom.centroid.coords[0] for geom in aoi.geometry])
-overall_centroid_of_all_aois = aoi_centroids_mp.centroid.coords[0]
-print(overall_centroid_of_all_aois)
-zoom = 5 #OSM zoom level
-center = tuple(reversed(overall_centroid_of_all_aois))
-m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
-
-
-# # Display the processing grids over the two AOIs
-
-# In[6]:
-
-
-from ipyleaflet import GeoData
-#NOTE: currently geopandas are read back from the filesystem; this can be done on-the-fly in the outer loop above
-rom_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Romania_r10_c10_100.shp')
-rom_geo_data = GeoData(geo_dataframe = rom_gpd.to_crs({'init': 'epsg:4326'}) ,name = "bucharest")
-m.add_layer(rom_geo_data)
-
-ger_gpd = gpd.read_file('/mnt/10t-drive/eochallenge/aoi/aoi_bbox_4326_Germany_r10_c10_100.shp')
-ger_geo_data = GeoData(geo_dataframe = ger_gpd.to_crs({'init': 'epsg:4326'}) ,name = "markkleeberg")
-m.add_layer(ger_geo_data)
-
-m
-
-
 # # Load Satellite Imagery Collections
 # 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
 # 
 
-# In[7]:
+# In[8]:
 
 
 # Create custom DataSources (note: this requires a patched version of the sentinelhub package )
@@ -737,7 +723,7 @@ ds_p6 = DataSource('DSS10-b854d829-d016-4bd3-8bcd-bdbd49ebdefe')
 ds_r2 = DataSource('DSS10-18353a79-c92d-4519-a523-4f4c0316a080')
 
 
-# In[8]:
+# In[9]:
 
 
 def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
@@ -1047,14 +1033,14 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
     return patch_s2
 
 
-# In[9]:
+# In[10]:
 
 
 for i in range(len(bbox_splitter_list)):
     print(len(bbox_splitter_list[i].bbox_list))
 
 
-# In[10]:
+# In[11]:
 
 
 resolution = args.resolution
