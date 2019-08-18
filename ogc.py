@@ -163,7 +163,7 @@ class OgcImageService(OgcService):
         if hasattr(request, 'data_source') and request.data_source.is_uswest_source():
             url = 'https://services-uswest2.sentinel-hub.com/ogc/{}'.format(request.service_type.value)
 
-        if hasattr(request, 'data_source') and request.data_source not in DataSource.get_available_sources():
+        if hasattr(request, 'data_source') and ("DSS10" not in request.data_source.name) and request.data_source not in DataSource.get_available_sources():
             raise ValueError("{} is not available for service at ogc_base_url={}".format(request.data_source,
                                                                                          SHConfig().ogc_base_url))
         return url

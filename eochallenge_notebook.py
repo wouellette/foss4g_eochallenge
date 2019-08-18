@@ -4,7 +4,7 @@
 # # Imports and other initializations
 # 
 
-# In[2]:
+# In[1]:
 
 
 # General imports 
@@ -77,8 +77,8 @@ import shap
 
 # If a buffer size is defined around the AOI, it can be passed here in meters
 args = easydict.EasyDict({
-  "aoi": "./aoi_eochallenge.geojson",
-  "training_path": ["./training_data/trainingdata_germany.shp","./training_data/trainingdata_romania.shp"],
+  "aoi": "./aoi_eochallenge_trimmed.geojson",
+  "training_path": ["./training_data/trainingdata_germany_trimmed.shp","./training_data/trainingdata_romania_trimmed.shp"],
   "aoi_bufsize": 10000,
   "zoom_level": (10,10),
   "hour_diff": 73,
@@ -108,7 +108,7 @@ args = easydict.EasyDict({
 # # Various utilities required by the notebook
 # 
 
-# In[3]:
+# In[2]:
 
 
 class MaxCCPredicate:
@@ -132,8 +132,10 @@ class SentinelHubValidData:
     """
 
     def __call__(self, eopatch):
-        return np.logical_and(eopatch.mask['IS_DATA'].astype(np.bool),
-                              np.logical_not(eopatch.mask['CLM'].astype(np.bool)))
+        #disabled the original predicate while we dont have CLM mask
+        #return np.logical_and(eopatch.mask['IS_DATA'].astype(np.bool),
+        #                      np.logical_not(eopatch.mask['CLM'].astype(np.bool)))
+        return eopatch.mask['IS_DATA'].astype(np.bool)
 
 
 class CountValid(EOTask):
@@ -553,7 +555,7 @@ def plot_image(image, factor=1):
 # # Load AOI geometry and split it into a processing grid.
 # 
 
-# In[4]:
+# In[3]:
 
 
 # The AOI should be in EPSG:4326
@@ -619,7 +621,7 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
 # # Split Training dataset into a training and test parts
 # 
 
-# In[5]:
+# In[4]:
 
 
 
@@ -692,7 +694,7 @@ for idx, training in zip(country_list, trainings):
 
 # # Load OSM map centered on AOIs
 
-# In[6]:
+# In[5]:
 
 
 from shapely.geometry import MultiPoint
@@ -706,7 +708,7 @@ m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
 
 # # Display the processing grids over the two AOIs
 
-# In[7]:
+# In[6]:
 
 
 from ipyleaflet import GeoData
@@ -727,7 +729,7 @@ m
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
 # 
 
-# In[8]:
+# In[7]:
 
 
 # Create custom DataSources (note: this requires a patched version of the sentinelhub package )
@@ -735,7 +737,7 @@ ds_p6 = DataSource('DSS10-b854d829-d016-4bd3-8bcd-bdbd49ebdefe')
 ds_r2 = DataSource('DSS10-18353a79-c92d-4519-a523-4f4c0316a080')
 
 
-# In[1]:
+# In[8]:
 
 
 def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
@@ -761,7 +763,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
     # One case is if too little data is available with current parameters.
     # Other case is if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
     attempts = 0
-    while attempts < 5:
+    while attempts < 2:
         # TASK FOR BAND DATA
         # 1. add a request for B(B02), G(B03), R(B04), NIR (B08), SWIR1(B11), SWIR2(B12)
         # from default layer 'ALL_BANDS' at 10m resolution
@@ -843,7 +845,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         #    time_difference=datetime.timedelta(hours=hour_diff))
 
         # 4. Filter task to be used for gif generation (a gif with clouds isn't very pretty, nor useful)
-        filter_task_clm = SimpleFilterTask((FeatureType.MASK, 'CLM'), MaxCCPredicate(maxcc=0.05))
+        #filter_task_clm = SimpleFilterTask((FeatureType.MASK, 'CLM'), MaxCCPredicate(maxcc=0.05))
 
         # 5. Validate pixels using SentinelHub's cloud detection mask
         add_sh_valmask = AddValidDataMaskTask(SentinelHubValidData(), 'IS_VALID')
@@ -861,7 +863,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         for el, val in zip(training_array, training_val):
             training_task_array.append(VectorToRaster(
                 raster_feature=(FeatureType.MASK_TIMELESS, 'LULC'),
-                vector_input=el,
+                vector_input=el.to_crs({'init': str(bbox.crs)}),
                 values=val,
                 raster_shape=rshape))
 
@@ -869,15 +871,17 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         for el, val in zip(split_array, [1, 2]):
             split_task_array.append(VectorToRaster(
                 raster_feature=(FeatureType.DATA_TIMELESS, 'SPLIT'),
-                vector_input=el,
+                vector_input=el.to_crs({'init': str(bbox.crs)}),
                 values=val,
                 raster_shape=rshape))
 
         # 8. Export valid pixel count to tiff file
         export_val_sh = ExportToTiff((FeatureType.MASK_TIMELESS, 'VALID_COUNT_SH'))
 
+
         extra_params = {}
-        extra_params[export_val_sh] = {'filename':f'/{out_path}/valid_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'}
+        extra_params[export_val_sh] = {'filename':f'{out_path}/valid/valid_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'}
+        os.makedirs(f'{out_path}/valid', exist_ok=True)        
 
         # 9. define additional parameters of the workflow
         extra_params[add_r2] = {'bbox': bbox, 'time_interval': time_interval}
@@ -890,7 +894,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         if gif:
             workflow = LinearWorkflow(
             add_r2,
-            add_p6,
+            #add_p6,
             #add_s2,
             #add_clm,
             #filter_task_clm,
@@ -903,10 +907,10 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         else:
             workflow = LinearWorkflow(
             add_r2,
-            add_p6,
+            #add_p6,
             #add_s2,
             #add_clm,
-            filter_task_clm,
+            #filter_task_clm,
             add_sh_valmask,
             count_val_sh,
             export_val_sh,
@@ -916,6 +920,8 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
 
         os.makedirs(f'{out_path}/lulc_sample', exist_ok=True)
         os.makedirs(f'{out_path}/lulc_nosample', exist_ok=True)
+        os.makedirs(f'{out_path}/gif/r2', exist_ok=True)
+        os.makedirs(f'{out_path}/gif/p6', exist_ok=True)
 
        # Check if EOPatch already exists. If so, load it and skip workflow execution.
         if os.path.isfile(f'{out_path}/lulc_sample/eopatch_{idx}/timestamp.pkl'):
@@ -961,12 +967,12 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
                     if gif:
                         # Create temporal Giff of the NDVI time series inside the EOPatch
                         animated_gif=MakeGif(size=(960,1200))
-                        animated_gif.add(patch_s2.data['R2'],label=patch_s2.timestamp,band=6)
-                        animated_gif.save(f'/{out_path}/gif_r2.gif', fps=1)
+                        animated_gif.add(patch_s2.data['R2'],label=patch_s2.timestamp,band=4)
+                        animated_gif.save(f'/{out_path}/gif/r2/gif_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.gif', fps=1)
 
                         animated_gif=MakeGif(size=(960,1200))
-                        animated_gif.add(patch_s2.data['P6'],label=patch_s2.timestamp,band=6)
-                        animated_gif.save(f'/{out_path}/gif_p6.gif', fps=1)
+                        animated_gif.add(patch_s2.data['P6'],label=patch_s2.timestamp,band=4)
+                        animated_gif.save(f'/{out_path}/gif/p6/gif_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.gif', fps=1)
 
                     else:
                         # If no training data is available for the given EOPatch,
@@ -1039,6 +1045,17 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
             break
                 
     return patch_s2
+
+
+# In[9]:
+
+
+for i in range(len(bbox_splitter_list)):
+    print(len(bbox_splitter_list[i].bbox_list))
+
+
+# In[10]:
+
 
 resolution = args.resolution
 hour_diff = args.hour_diff

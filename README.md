@@ -65,4 +65,4 @@ As an example, you can copy the **[pre-commit](./pre-commit)** file (main conten
 
 ## Misc
 
-The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) file to overwrite the original file in the package.     
+The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) and [`ogc.py`](./ogc.py) files to overwrite the original files in the package.
