@@ -1281,14 +1281,13 @@ def interpolate_eopatch(resample_range, training_val, out_path, idx,
 resample_range = (args.time_range[0], args.time_range[1], args.interpolation_interval)
 
 for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-	if aoi_idx == 1:
-	    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-	    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-	    # load_eopatch_multi = partial(interpolate_eopatch, resample_range, training_vals[aoi_idx],
-		# 								f'{out_path}/{country_list[aoi_idx]}')
-	    # multiprocess(n_procs, range_idx, load_eopatch_multi)
-	    for idx in range_idx:
-	        interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
+    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
+    # load_eopatch_multi = partial(interpolate_eopatch, resample_range, training_vals[aoi_idx],
+	# 								f'{out_path}/{country_list[aoi_idx]}')
+    # multiprocess(n_procs, range_idx, load_eopatch_multi)
+    for idx in range_idx:
+        interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
 
 # # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
