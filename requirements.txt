@@ -19,3 +19,7 @@ joblib==0.13.2
 scikit-learn==0.21.3
 multiprocess==0.70.8
 nbmultitask==0.1.0
+aenum=2.2.1
+multiprocess=0.70.8
+nbmultitask=0.1.0
+nbstripout=0.3.6
