@@ -1458,15 +1458,15 @@ def predict_eopatch(model, bbox_splitter, labels_unique, proba, shap, out_path, 
 	            attempts += 1
 	            continue
 	        break
-    return patch_s2
+	return patch_s2
 
 for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-    train_model(range_idx, args.lulc_classes, args.time_range, out_path=f'{out_path}/{country_list[aoi_idx]}')
+	range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+	range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
+	train_model(range_idx, args.lulc_classes, args.time_range, out_path=f'{out_path}/{country_list[aoi_idx]}')
 	for idx in [bbox_splitter.bbox_list.index(bbox) for bbox in bbox_splitter.bbox_list]:
-        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx],
-                    split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
+		load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], \
+		split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
 		interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
 		predict_eopatch(model, bbox_splitter, labels_unique,
 						proba, shap, f'{dest_folder}/{idx}', i)
