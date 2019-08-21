@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# In[1]:
 
 
-first_src_filepath = ''
-second_src_filepath = ''
+get_ipython().run_line_magic('matplotlib', 'inline')
+
+first_src_filepath = '/home/vanhove/Downloads/joze_airport_ground_truth.tif'
+second_src_filepath = '/home/vanhove/Downloads/joze_airport_prediction.tif'
 
 import pprint
 import rasterio
