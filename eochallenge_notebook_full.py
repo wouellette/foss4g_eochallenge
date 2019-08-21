@@ -133,7 +133,7 @@ class SentinelHubValidData:
 
     def __call__(self, eopatch):
         #disabled the original predicate while we dont have CLM mask
-        if hasattr(eopatch.mask, 'CLM'):
+        if 'CLM' in eopatch.mask:
             print("Cloud mask present, applying it on data...")
             return np.logical_and(eopatch.mask['IS_DATA'].astype(np.bool),np.logical_not(eopatch.mask['CLM'].astype(np.bool)))
         else:
@@ -1054,16 +1054,16 @@ n_procs = args.n_procs
 #task = ThreadWithLogAndControls(target=load_eopatch, args=(p,), name="harvest EOPatches over AOI")
 #task.control_panel()
 
-# for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-#     range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-#     range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-#     # load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx],
-#     #                              split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}',
-# 	# 							 row, col)
-#     # multiprocess(n_procs, range_idx, load_eopatch_multi)
-#     for idx in range_idx:
-#         load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx],
-#                     split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
+for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
+    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
+    # load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx],
+    #                              split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}',
+	# 							 row, col)
+    # multiprocess(n_procs, range_idx, load_eopatch_multi)
+    for idx in range_idx:
+        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx],
+                    split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
 
 # Print any produced output, whether eopatch extents, or gif produced.
 # Probably best to read from filesystem saved outputs like the gif or the validity raster
@@ -1281,14 +1281,14 @@ def interpolate_eopatch(resample_range, training_val, out_path, idx,
 
 resample_range = (args.time_range[0], args.time_range[1], args.interpolation_interval)
 
-# for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-#     range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-#     range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-#     # load_eopatch_multi = partial(interpolate_eopatch, resample_range, training_vals[aoi_idx],
-# 	# 								f'{out_path}/{country_list[aoi_idx]}')
-#     # multiprocess(n_procs, range_idx, load_eopatch_multi)
-#     for idx in range_idx:
-#         interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
+for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
+    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
+    # load_eopatch_multi = partial(interpolate_eopatch, resample_range, training_vals[aoi_idx],
+	# 								f'{out_path}/{country_list[aoi_idx]}')
+    # multiprocess(n_procs, range_idx, load_eopatch_multi)
+    for idx in range_idx:
+        interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
 
 # # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
