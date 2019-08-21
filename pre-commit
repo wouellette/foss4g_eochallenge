@@ -13,3 +13,11 @@ nbstripout eochallenge_notebook.ipynb
 jupyter nbconvert eochallenge_notebook.ipynb --to="python"
 # add the generated file to the staging area of Git
 git add eochallenge_notebook.py
+
+
+# clear the notebook output
+nbstripout eochallenge_change_detection_notebook.ipynb
+# generate the "pure" Python version of the notebook
+jupyter nbconvert eochallenge_change_detection_notebook.ipynb --to="python"
+# add the generated file to the staging area of Git
+git add eochallenge_change_detection_notebook.py

@@ -2,12 +2,12 @@
 # coding: utf-8
 
 # # Imports and other initializations
-#
+# 
 
 # In[ ]:
 
 
-# General imports
+# General imports 
 import glob
 import shutil
 import os
@@ -67,13 +67,13 @@ from eolearn.io import ExportToTiff, SentinelHubWCSInput, S2L1CWCSInput
 from eolearn.mask import AddValidDataMaskTask, get_s2_pixel_cloud_detector, AddCloudMaskTask
 from eolearn.ml_tools import MorphologicalOperations, MorphologicalStructFactory
 from sentinelhub import CRS, BBoxSplitter, WcsRequest, DataSource, CustomUrlParam
-from sentinelhub.constants import MimeType
 
 # ML libraries
 import lightgbm as lgb
 from sklearn import metrics
 from sklearn import preprocessing
 import joblib
+import shap
 
 # If a buffer size is defined around the AOI, it can be passed here in meters
 args = easydict.EasyDict({
@@ -84,15 +84,15 @@ args = easydict.EasyDict({
   "hour_diff": 73,
   "cloud_threshold": 0.4,
   "maxcc": 0.5,
-  "dest": "/home/ubuntu/output/2016",
+  "dest": "/mnt/10t-drive/eochallenge",
   "time_range": ["2016-01-01","2016-12-30"],
   "save_choice": True,
-  "n_procs": 2,
+  "n_procs": 4,
   "resolution": 10,
   "narrow_interpolation": True,
   "proba": True,
   "shap": False,
-  "gif": False,
+  "gif": True,
   "interpolation_interval": 30,
   "lulc_classes": {
     "no data": 0,
@@ -106,7 +106,7 @@ args = easydict.EasyDict({
 
 
 # # Various utilities required by the notebook
-#
+# 
 
 # In[ ]:
 
@@ -133,10 +133,12 @@ class SentinelHubValidData:
 
     def __call__(self, eopatch):
         #disabled the original predicate while we dont have CLM mask
+        #return np.logical_and(eopatch.mask['IS_DATA'].astype(np.bool),
+        #                      np.logical_not(eopatch.mask['CLM'].astype(np.bool)))
         if hasattr(eopatch.mask, 'CLM'):
             return np.logical_and(eopatch.mask['IS_DATA'].astype(np.bool),
                                   np.logical_not(eopatch.mask['CLM'].astype(np.bool)))
-        else:
+        else:    
             return eopatch.mask['IS_DATA'].astype(np.bool)
 
 
@@ -270,7 +272,7 @@ def recompute_interpolation_range(range_idx, out_path=None, n_samples=1000, **kw
     eopatches = []
     eopatches_sample = []
     for idx in range_idx:
-        if os.path.isfile(f'{out_path}/lulc_sample/eopatch_{idx}/data/BANDS.npy') or os.path.isfile(f'{out_path}/lulc_nosample/eopatch_{idx}/data/BANDS.npy'):
+        if os.path.isfile(f'{out_path}/lulc_sample/eopatch_{idx}/data/BANDS.npy')                 or os.path.isfile(f'{out_path}/lulc_nosample/eopatch_{idx}/data/BANDS.npy'):
             try:
                 eopatches.append(EOPatch.load(f'{out_path}/lulc_sample/eopatch_{idx}', lazy_loading=True))
                 eopatches_sample.append(EOPatch.load(f'{out_path}/lulc_sample/eopatch_{idx}', lazy_loading=True))
@@ -505,7 +507,7 @@ class PredictPatch(EOTask):
             eopatch.add_feature(FeatureType.DATA_TIMELESS, 'PRED_PROBA', plabels_proba)
 
         return eopatch
-
+    
 def intersect_aoi(bbox_splitter, training):
 
     geometry = [Polygon(bbox.get_polygon()) for bbox in bbox_splitter.bbox_list]
@@ -521,14 +523,14 @@ def intersect_aoi(bbox_splitter, training):
         if range_bool[i]:
             bbox_train_list.append(bbox_splitter.bbox_list[i])
     return bbox_train_list
-
+    
 def multiprocess(n_procs, range_idx, func):
     """
     Function to enable multiprocessing of the different subpackages' calls
     """
     p = Pool(n_procs, maxtasksperchild=1)
     p.map(func, range_idx, chunksize=1)
-
+    
 
 def decode_image(response_content):
     """
@@ -556,7 +558,7 @@ def plot_image(image, factor=1):
 
 
 # # Load AOI geometry and split it into a processing grid.
-#
+# 
 
 # In[ ]:
 
@@ -575,7 +577,7 @@ bbox_splitter_list = []
 gdfs = [] # an array of GeoDataFrames to be plotted later
 # Assuming there are two AOIs: one for Romania, one for Germany
 for idx, aoi_el in zip(country_list, aoi.geometry):
-
+    
     aoi_latlon = aoi_el.centroid.coords[0]
     utm_crs = utm.from_latlon(aoi_latlon[1], aoi_latlon[0])
     if aoi_latlon[1] > 0:
@@ -588,15 +590,15 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
             aoi_crs = 'EPSG:327%s' % utm_crs[2]
         else:
             aoi_crs = 'EPSG:3270%s' % utm_crs[2]
-
+            
     # Split the AOI into a processing grid matching the OSM zoom level 12 grid
-
+    
     aoi_temp = aoi['geometry'].to_crs(aoi_crs)
 
     print(country_list.index(idx))
     bbox_splitter = BBoxSplitter([aoi_temp[country_list.index(idx)]], aoi_crs, (row, col))
     bbox_splitter_list.append(bbox_splitter)
-
+    
     bbox_list = bbox_splitter.get_bbox_list()
     print('Area bounding box: {}\n'.format(bbox_splitter.get_area_bbox().__repr__()))
     print('Each bounding box also has some info how it was created. Example:'
@@ -618,7 +620,8 @@ for idx, aoi_el in zip(country_list, aoi.geometry):
     gdf.head()
 
     gdf.to_file(f'{out_path}/aoi/aoi_bbox_4326_{idx}_r{row}_c{col}_{len(bbox_splitter.bbox_list)}.shp')
-    gdfs.append(gdf)
+    gdfs.append(gdf)  
+   
 
 
 # In[ ]:
@@ -635,13 +638,15 @@ m = Map(center=center, zoom=zoom) # show a map that covers all the AOIs
 for gdf in gdfs:
     m.add_layer(GeoData(geo_dataframe = gdf.to_crs({'init': 'epsg:4326'})))
 
-m
+m    
 
 
 # # Split Training dataset into a training and test parts
-#
+# 
 
 # In[ ]:
+
+
 
 training_romania = gpd.read_file(args.training_path[1])
 training_romania.head()
@@ -706,14 +711,14 @@ for idx, training in zip(country_list, trainings):
     training_arrays.append(training_array)
     split_arrays.append(split_array)
     training_vals.append(training_val)
-
+    
     # Plot the training data distribution on ipyleaflet
 
 
 # # Load Satellite Imagery Collections
-#
+# 
 # TODOs: Check if the cloud detection routine is necessary, and if so, adapt it to work to LIS-III.
-#
+# 
 
 # In[ ]:
 
@@ -726,15 +731,15 @@ ds_r2 = DataSource('DSS10-18353a79-c92d-4519-a523-4f4c0316a080')
 # In[ ]:
 
 
-def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, row, col, idx,
-                 interp_interval=30, save_choice=True, cloud_threshold=0.4, maxcc=0.8,
+def load_eopatch(bbox_splitter, time_interval, training_array, split_array, training_val, out_path, idx,
+                 interp_interval=30, save_choice=True, cloud_threshold=0.4, maxcc=0.8, row=10, col=10,
                  hour_diff=73, resolution=10):
-
+    
     global patch_s2
     start_date = time_interval[0]
     end_date = time_interval[1]
     eopatches = []
-
+    
     info = bbox_splitter.info_list[idx]
     bbox = bbox_splitter.bbox_list[idx]
 
@@ -754,7 +759,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         # 1. add a request for B(B02), G(B03), R(B04), NIR (B08), SWIR1(B11), SWIR2(B12)
         # from default layer 'ALL_BANDS' at 10m resolution
         custom_script_s2 = 'return [B02, B03, B04, B05, B06, B07, B08, B8A, B11, B12];'
-
+ 
         #add_p6 = SentinelHubWCSInput(
         #layer='FOSS4G_P6',
         #data_source=ds_p6,
@@ -765,7 +770,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         #maxcc=maxcc,
         #time_difference=datetime.timedelta(hours=hour_diff)
         #)
-
+        
         # add_r2 = SentinelHubWCSInput(
         #layer='FOSS4G_R2',
         #data_source=ds_r2,
@@ -785,7 +790,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
         resx=f'{resolution}m',  # resolution x
         resy=f'{resolution}m',  # resolution y
         maxcc=maxcc,  # maximum allowed cloud cover of original ESA tiles
-		time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
+        time_difference=datetime.timedelta(hours=hour_diff))  # time difference to consider to merge consecutive images
 
         # 2. Run SentinelHub's cloud detector
         # (cloud detection is performed at 160m resolution
@@ -868,13 +873,13 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
 
         extra_params = {}
         extra_params[export_val_sh] = {'filename':f'{out_path}/valid/valid_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'}
-        os.makedirs(f'{out_path}/valid', exist_ok=True)
+        os.makedirs(f'{out_path}/valid', exist_ok=True)        
 
         # 9. define additional parameters of the workflow
         #extra_params[add_r2] = {'bbox': bbox, 'time_interval': time_interval}
         #extra_params[add_p6] = {'bbox': bbox, 'time_interval': time_interval}
         extra_params[add_s2] = {'bbox': bbox, 'time_interval': time_interval}
-
+        
         # 9. Declare workflow
         if gif:
             workflow = LinearWorkflow(
@@ -946,7 +951,8 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
                 #     continue
                 try:
                     print("number of training pixels in patch:", np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 1))
-                    print("number of validation pixels in patch:",np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 2))
+                    print("number of validation pixels in patch:",
+                          np.count_nonzero(patch_s2.data_timeless['SPLIT'] == 2))
 
                     if gif:
                         # Create temporal Giff of the NDVI time series inside the EOPatch
@@ -961,7 +967,6 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
                     else:
                         # If no training data is available for the given EOPatch,
                         # delete the MASK_TIMELESS features LULC and SPLIT
-                        print(np.count_nonzero(patch_s2.mask_timeless['LULC']))
                         if np.count_nonzero(patch_s2.mask_timeless['LULC']) == 0:
                             patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC', )
                             patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT', )
@@ -1028,7 +1033,7 @@ def load_eopatch(bbox_splitter, time_interval, training_array, split_array, trai
                 attempts += 1
                 continue
             break
-
+                
     return patch_s2
 
 
@@ -1056,13 +1061,13 @@ n_procs = args.n_procs
 for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
     range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
     range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-    # load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx],
-    #                              split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}',
-	# 							 row, col)
-    # multiprocess(n_procs, range_idx, load_eopatch_multi)
+    load_eopatch_multi = partial(load_eopatch, bbox_splitter, time_range, training_arrays[aoi_idx], 
+                                 split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}')
+    #multiprocess(n_procs, range_idx, load_eopatch_multi)
     for idx in range_idx:
-        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx],
-                    split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
+        load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], 
+                                 split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{aoi_idx}', idx,
+                    row=20, col=20)
 
 # Print any produced output, whether eopatch extents, or gif produced.
 # Probably best to read from filesystem saved outputs like the gif or the validity raster
@@ -1073,403 +1078,304 @@ for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
 # Finding a new way of aggregating data instead of interpolation would be interesting for two reasons:
 # - Interpolation requires cloud masking, which would we have to work on to apply to LISS-III.
 # - Temporal data aggregation is much less computationally intensive than an interpolation.
-#
+# 
 # The best way to go about this would be to:
 # - Define a temporal interval over which to aggregate.
 # - Determine the rule for pixel selection inside the temporal interval (max NDVI value for instance)
 # An article on temporal aggregation (with cloud cover): https://www.researchgate.net/publication/330814279_Evaluating_Combinations_of_Temporally_Aggregated_Sentinel-1_Sentinel-2_and_Landsat_8_for_Land_Cover_Mapping_with_Google_Earth_Engine
 # It would give you an idea of what temporal aggregation means at least. Note that a combination of metrics can be used (e.g. median of one index vs variance of another).
-#
+# 
 
 # In[ ]:
 
-def interpolate_eopatch(resample_range, training_val, out_path, idx,
-                        save_choice=True, disk_radius=1, n_samples=1000, even_sampling=True):
 
-	# This implementation is an interpolation and not an aggregation, but we could consider switching that.
+# This implementation is an interpolation and not an aggregation, but we could consider switching that.
 
-	eopatch_sample = Path(str(f'{out_path}/lulc_sample/eopatch_{idx}'))
-	eopatch_nosample = Path(str(f'{out_path}/lulc_nosample/eopatch_{idx}'))
-	eopatch_sampled = Path(str(f'{out_path}/lulc_sampled/eopatch_{idx}'))
+eopatch_sample = Path(str(f'{out_path}/lulc_sample/eopatch_{idx}'))
+eopatch_nosample = Path(str(f'{out_path}/lulc_nosample/eopatch_{idx}'))
+eopatch_sampled = Path(str(f'{out_path}/lulc_sampled/eopatch_{idx}'))
 
-	# TASK FOR CONCATENATION
-	concatenate = ConcatenateData('FEATURES', ['BANDS'])
-	# Add additional collections if more than LIS-III is retrieved
-	#concatenate = ConcatenateData('FEATURES', ['R2', 'P6'])
+# TASK FOR CONCATENATION
+# concatenate = ConcatenateData('FEATURES', ['BANDS', 'NDVI', 'NDWI', 'NORM'])
+# Add additional collections if more than LIS-III is retrieved
+concatenate = ConcatenateData('FEATURES', ['R2', 'P6'])
 
-	# TASK FOR FILTERING OUT TOO CLOUDY SCENES
-	# keep frames with > 80 % valid coverage
-	# valid_data_predicate = ValidDataFractionPredicate(0.8)
-	# filter_task = SimpleFilterTask((FeatureType.MASK, 'IS_VALID'), valid_data_predicate)
-	# valid_lulc_predicate = ValidLULCPredicate()
-	# filter_lulc = SimpleFilterTask((FeatureType.MASK_TIMELESS, 'LULC'), valid_lulc_predicate)
+# TASK FOR FILTERING OUT TOO CLOUDY SCENES
+# keep frames with > 80 % valid coverage
+# valid_data_predicate = ValidDataFractionPredicate(0.8)
+# filter_task = SimpleFilterTask((FeatureType.MASK, 'IS_VALID'), valid_data_predicate)
+# valid_lulc_predicate = ValidLULCPredicate()
+# filter_lulc = SimpleFilterTask((FeatureType.MASK_TIMELESS, 'LULC'), valid_lulc_predicate)
 
-	# TASK FOR LINEAR INTERPOLATION
-	# linear interpolation of full time-series and date resampling
-	linear_interp = LinearInterpolation(
-	    feature='FEATURES',  # name of field to interpolate
-	    mask_feature=(FeatureType.MASK, 'IS_VALID'),  # mask to be used in interpolation
-	    resample_range=resample_range,  # set the resampling range
-	    parallel=True  # Optimize CPU usage
-	)
+# TASK FOR LINEAR INTERPOLATION
+# linear interpolation of full time-series and date resampling
+linear_interp = LinearInterpolation(
+    feature='FEATURES',  # name of field to interpolate
+    mask_feature=(FeatureType.MASK, 'IS_VALID'),  # mask to be used in interpolation
+    resample_range=resample_range,  # set the resampling range
+    parallel=True  # Optimize CPU usage
+)
 
-	# Task for performing morphological erosion of specific disk radius around land cover labels of choice
-	# erosion = ErosionTask((FeatureType.MASK_TIMELESS, 'LULC'), disk_radius=disk_radius)
-	erosion = ClassFilterTask((FeatureType.MASK_TIMELESS, 'LULC'), [1, 3, 6], MorphologicalOperations.EROSION,
-	                          struct_elem=MorphologicalStructFactory.get_disk(disk_radius))
+# Task for performing morphological erosion of specific disk radius around land cover labels of choice
+# erosion = ErosionTask((FeatureType.MASK_TIMELESS, 'LULC'), disk_radius=disk_radius)
+erosion = ClassFilterTask((FeatureType.MASK_TIMELESS, 'LULC'), [1, 4, 6, 9], MorphologicalOperations.EROSION,
+                          struct_elem=MorphologicalStructFactory.get_disk(disk_radius))
 
-	# Task for performing random sampling of land cover training labels
-	spatial_sampling = PointSamplingTask(
-	    n_samples=n_samples,
-	    ref_mask_feature='LULC',
-	    ref_labels=training_val,
-	    sample_features=[  # tag fields to sample
-	        (FeatureType.DATA, 'FEATURES',),
-	        (FeatureType.MASK, 'IS_VALID',),
-	        (FeatureType.MASK_TIMELESS, 'LULC',),
-	        (FeatureType.DATA_TIMELESS, 'SPLIT',)
-	    ],
-	    even_sampling=even_sampling)
+# Task for performing random sampling of land cover training labels
+spatial_sampling = PointSamplingTask(
+    n_samples=n_samples,
+    ref_mask_feature='LULC',
+    ref_labels=training_val,
+    sample_features=[  # tag fields to sample
+        (FeatureType.DATA, 'FEATURES',),
+        (FeatureType.MASK, 'IS_VALID',),
+        (FeatureType.MASK_TIMELESS, 'LULC',),
+        (FeatureType.DATA_TIMELESS, 'SPLIT',)
+    ],
+    even_sampling=even_sampling)
 
-	# Task to save the resulting EOPatch to the disk
-	os.makedirs(f'{out_path}/lulc_sampled', exist_ok=True)
-	save = SaveToDisk(f'{out_path}/lulc_sampled',
-	                  overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+# Task to save the resulting EOPatch to the disk
+os.makedirs(f'{out_path}/lulc_sampled', exist_ok=True)
+save = SaveToDisk(f'{out_path}/lulc_sampled',
+                  overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
 
-	# Check to verify whether the current EOPatch contains training sample or not
-	if eopatch_sample.is_dir() and not Path(f'{eopatch_sampled}/data/FEATURES_SAMPLED.npy').is_file():
-	    print("this patch contains training samples. interpolating and sampling.")
+# Check to verify whether the current EOPatch contains training sample or not
+if eopatch_sample.is_dir() and not Path(f'{eopatch_sampled}/data/FEATURES_SAMPLED.npy').is_file():
+    print("this patch contains training samples. interpolating and sampling.")
 
-	    # Task to move the unaltered features from the old EOPatch to the new EOPatch
-	    move_features = MoveFeature({
-	        FeatureType.MASK_TIMELESS: {'LULC'},
-	        FeatureType.DATA_TIMELESS: {'SPLIT'},
-	        FeatureType.MASK: {'IS_VALID'}})
+    # Task to move the unaltered features from the old EOPatch to the new EOPatch
+    move_features = MoveFeature({
+        FeatureType.MASK_TIMELESS: {'LULC'},
+        FeatureType.DATA_TIMELESS: {'SPLIT'},
+        FeatureType.MASK: {'IS_VALID'}})
 
-	    # Declare locations where to load from/save to
-	    if save_choice:
-	        load = LoadFromDisk(f'{out_path}/lulc_sample', lazy_loading=True)
-	        save_dependency = [Dependency(task=save, inputs=[spatial_sampling])]
-	    else:
-	        load = LoadFromMemory()
-	        save_dependency = []
+    # Declare locations where to load from/save to
+    if save_choice:
+        load = LoadFromDisk(f'{out_path}/lulc_sample', lazy_loading=True)
+        save_dependency = [Dependency(task=save, inputs=[spatial_sampling])]
+    else:
+        load = LoadFromMemory()
+        save_dependency = []
 
-	    # Declare workflow with the sequence of tasks
-	    workflow = EOWorkflow(dependencies=[
-	        Dependency(task=load, inputs=[]),
-	        Dependency(task=concatenate, inputs=[load]),
-	        # Dependency(task=filter_task, inputs=[concatenate]),
-	        # Dependency(task=filter_lulc, inputs=[concatenate]),
-	        Dependency(task=linear_interp, inputs=[concatenate]),
-	        # Dependency(task=move_features, inputs=[linear_interp,filter_task]),
-	        Dependency(task=move_features, inputs=[linear_interp, concatenate]),
-	        Dependency(task=erosion, inputs=[move_features]),
-	        Dependency(task=spatial_sampling, inputs=[move_features]),
-	        *save_dependency
-	    ])
+    # Declare workflow with the sequence of tasks
+    workflow = EOWorkflow(dependencies=[
+        Dependency(task=load, inputs=[]),
+        Dependency(task=concatenate, inputs=[load]),
+        # Dependency(task=filter_task, inputs=[concatenate]),
+        # Dependency(task=filter_lulc, inputs=[concatenate]),
+        Dependency(task=linear_interp, inputs=[concatenate]),
+        # Dependency(task=move_features, inputs=[linear_interp,filter_task]),
+        Dependency(task=move_features, inputs=[linear_interp, concatenate]),
+        Dependency(task=erosion, inputs=[move_features]),
+        Dependency(task=spatial_sampling, inputs=[move_features]),
+        *save_dependency
+    ])
 
-	elif not eopatch_sample.is_dir() and not eopatch_sampled.is_dir():
-	    print("this patch does not contain any training samples. interpolating without sampling.")
+elif not eopatch_sample.is_dir() and not eopatch_sampled.is_dir():
+    print("this patch does not contain any training samples. interpolating without sampling.")
 
-	    # Task to move the unaltered features from the old EOPatch to the new EOPatch
-	    move_features = MoveFeature({
-	        FeatureType.MASK: {'IS_VALID'}})
+    # Task to move the unaltered features from the old EOPatch to the new EOPatch
+    move_features = MoveFeature({
+        FeatureType.MASK: {'IS_VALID'}})
 
-	    # Declare locations where to load from/save to
-	    if save_choice:
-	        load = LoadFromDisk(f'{out_path}/lulc_nosample', lazy_loading=True)
-	        save_dependency = [Dependency(task=save, inputs=[move_features])]
-	    else:
-	        load = LoadFromMemory()
-	        save_dependency = []
+    # Declare locations where to load from/save to
+    if save_choice:
+        load = LoadFromDisk(f'{out_path}/lulc_nosample', lazy_loading=True)
+        save_dependency = [Dependency(task=save, inputs=[move_features])]
+    else:
+        load = LoadFromMemory()
+        save_dependency = []
 
-	    # Declare workflow with the sequence of tasks
-	    workflow = EOWorkflow(dependencies=[
-	        Dependency(task=load, inputs=[]),
-	        Dependency(task=concatenate, inputs=[load]),
-	        # Dependency(task=filter_task, inputs=[concatenate]),
-	        # Dependency(task=filter_lulc, inputs=[concatenate]),
-	        Dependency(task=linear_interp, inputs=[concatenate]),
-	        # Dependency(task=move_features_ns, inputs=[linear_interp,filter_task]),
-	        Dependency(task=move_features, inputs=[linear_interp]),
-	        *save_dependency
-	    ])
+    # Declare workflow with the sequence of tasks
+    workflow = EOWorkflow(dependencies=[
+        Dependency(task=load, inputs=[]),
+        Dependency(task=concatenate, inputs=[load]),
+        # Dependency(task=filter_task, inputs=[concatenate]),
+        # Dependency(task=filter_lulc, inputs=[concatenate]),
+        Dependency(task=linear_interp, inputs=[concatenate]),
+        # Dependency(task=move_features_ns, inputs=[linear_interp,filter_task]),
+        Dependency(task=move_features, inputs=[linear_interp]),
+        *save_dependency
+    ])
 
-	# If the reduced EOPatch has already generated, return empty results
-	elif Path(f'{eopatch_sampled}/data/FEATURES_SAMPLED.npy').is_file():
-	    with open(f'{out_path}/lulc_sampled/range_sample.txt', "a") as f:
-	        f.write('%s\n' % idx)
-	    print("this patch has already been sampled. skipping to next patch.")
-	    return
-	else:
-	    print("this patch has already been interpolated (patch without samples). skipping to next patch.")
-	    return
+# If the reduced EOPatch has already generated, return empty results
+elif Path(f'{eopatch_sampled}/data/FEATURES_SAMPLED.npy').is_file():
+    with open(f'{out_path}/lulc_sampled/range_sample.txt', "a") as f:
+        f.write('%s\n' % idx)
+    print("this patch has already been sampled. skipping to next patch.")
+    return
+else:
+    print("this patch has already been interpolated (patch without samples). skipping to next patch.")
+    return
 
-	# While loop necessary to re-perform workflow with different parameters.
-	# Cases are if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
-	attempts = 0
-	while attempts < 5:
-	    # Execute workflow
-	    try:
-	        if save_choice:
-	            result = workflow.execute({
-	                load: {'eopatch_folder': 'eopatch_{}'.format(idx)},
-	                save: {'eopatch_folder': 'eopatch_{}'.format(idx)}
-	            })
-	        else:
-	            result = workflow.execute({
-	                load: {'eopatch': eopatch}
-	            })
+# While loop necessary to re-perform workflow with different parameters.
+# Cases are if a HTTPRequestError (simply retry) or MemoryError (not currently handled) is encountered.
+attempts = 0
+while attempts < 5:
+    # Execute workflow
+    try:
+        if save_choice:
+            result = workflow.execute({
+                load: {'eopatch_folder': 'eopatch_{}'.format(idx)},
+                save: {'eopatch_folder': 'eopatch_{}'.format(idx)}
+            })
+        else:
+            result = workflow.execute({
+                load: {'eopatch': eopatch}
+            })
 
-	        print(result[list(result.keys())[-1]])
-	        patch_s2 = list(result.values())[-1]
+        print(result[list(result.keys())[-1]])
+        patch_s2 = list(result.values())[-1]
 
-	        # Save the EOPatch index to file if it contains training data
-	        if patch_s2.mask_timeless['LULC_SAMPLED'].shape[0] == n_samples:
-	            with open(f'{out_path}/lulc_sampled/range_sample.txt', "a") as f:
-	                f.write('%s\n' % idx)
-	        # If not, remove the below EOPatch layers
-	        else:
-	            patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC', )
-	            patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC_SAMPLED', )
-	            patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT', )
-	            patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT_SAMPLED', )
-	            patch_s2.remove_feature(FeatureType.DATA, 'FEATURES_SAMPLED', )
-	            patch_s2.remove_feature(FeatureType.MASK, 'IS_VALID_SAMPLED', )
+        # Save the EOPatch index to file if it contains training data
+        if patch_s2.mask_timeless['LULC_SAMPLED'].shape[0] == n_samples:
+            with open(f'{out_path}/lulc_sampled/range_sample.txt', "a") as f:
+                f.write('%s\n' % idx)
+        # If not, remove the below EOPatch layers
+        else:
+            patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC', )
+            patch_s2.remove_feature(FeatureType.MASK_TIMELESS, 'LULC_SAMPLED', )
+            patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT', )
+            patch_s2.remove_feature(FeatureType.DATA_TIMELESS, 'SPLIT_SAMPLED', )
+            patch_s2.remove_feature(FeatureType.DATA, 'FEATURES_SAMPLED', )
+            patch_s2.remove_feature(FeatureType.MASK, 'IS_VALID_SAMPLED', )
 
-	            if save_choice:
-	                patch_s2.save(f'{eopatch_sampled}',
-	                              overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+            if save_choice:
+                patch_s2.save(f'{eopatch_sampled}',
+                              overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
 
-	            # Clean up the folder structure of the EOPatch
-	            if os.path.exists(eopatch_sample):
-	                if not os.path.exists(eopatch_nosample):
-	                    os.mkdir(eopatch_nosample)
-	                for item in os.listdir(eopatch_sample):
-	                    s = os.path.join(eopatch_sample, item)
-	                    d = os.path.join(eopatch_nosample, item)
-	                    if os.path.isdir(s) and not os.path.exists(d):
-	                        shutil.copytree(s, d)
-	                    elif os.path.isfile(s) and not os.path.isfile(d):
-	                        shutil.copy2(s, d)
-	                shutil.rmtree(eopatch_sample)
-	        del result
-	    except MemoryError:
-	        # TODO: Find a good way to handle MemoryError rather than simply retrying
-	        # TODO: Add Jira Ticket
-	        print(f'Interpolation failed for eopatch {idx} due to a MemoryError, trying again')
-	        print("Exception in user code:")
-	        print('-'*60)
-	        traceback.print_exc(file=sys.stdout)
-	        print('-'*60)
-	        attempts += 1
-	        continue
-	    except OSError:
-	        # TODO: Find a good way to handle MemoryError rather than simply retrying
-	        # TODO: Add Jira Ticket
-	        print(f'Interpolation failed for eopatch {idx} due to an OSError, trying again')
-	        print("Exception in user code:")
-	        print('-'*60)
-	        traceback.print_exc(file=sys.stdout)
-	        print('-'*60)
-	        attempts += 1
-	        continue
-	    break
+            # Clean up the folder structure of the EOPatch
+            if os.path.exists(eopatch_sample):
+                if not os.path.exists(eopatch_nosample):
+                    os.mkdir(eopatch_nosample)
+                for item in os.listdir(eopatch_sample):
+                    s = os.path.join(eopatch_sample, item)
+                    d = os.path.join(eopatch_nosample, item)
+                    if os.path.isdir(s) and not os.path.exists(d):
+                        shutil.copytree(s, d)
+                    elif os.path.isfile(s) and not os.path.isfile(d):
+                        shutil.copy2(s, d)
+                shutil.rmtree(eopatch_sample)
+        del result
+    except MemoryError:
+        # TODO: Find a good way to handle MemoryError rather than simply retrying
+        # TODO: Add Jira Ticket
+        print(f'Interpolation failed for eopatch {idx} due to a MemoryError, trying again')
+        print("Exception in user code:")
+        print('-'*60)
+        traceback.print_exc(file=sys.stdout)
+        print('-'*60)
+        attempts += 1
+        continue
+    except OSError:
+        # TODO: Find a good way to handle MemoryError rather than simply retrying
+        # TODO: Add Jira Ticket
+        print(f'Interpolation failed for eopatch {idx} due to an OSError, trying again')
+        print("Exception in user code:")
+        print('-'*60)
+        traceback.print_exc(file=sys.stdout)
+        print('-'*60)
+        attempts += 1
+        continue
+    break
 
-	return patch_s2
-
-resample_range = (args.time_range[0], args.time_range[1], args.interpolation_interval)
-
-for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-    # load_eopatch_multi = partial(interpolate_eopatch, resample_range, training_vals[aoi_idx],
-	# 								f'{out_path}/{country_list[aoi_idx]}')
-    # multiprocess(n_procs, range_idx, load_eopatch_multi)
-    for idx in range_idx:
-        interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
 
 # # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
 # - RNN or CNN using tensorflow (I don't really see it happening as we would need to recollect new training data).
-# - use SHAP ( https://github.com/slundberg/shap ) to perform a ML model explainability analysis.
-# It doesn't directly help in getting the required outputs for the challenge,
+# - use SHAP ( https://github.com/slundberg/shap ) to perform a ML model explainability analysis. 
+# It doesn't directly help in getting the required outputs for the challenge, 
 # but would be interesting to understand correlation between input features and output.
-#
+# 
 
 # In[ ]:
 
-def train_model(range_sample, lulc_classes, time_interval, interp_interval=30,
-				classifier='gbm_rf', out_path=None, model_path=None, shap=False, **kwargs):
 
-	eopatches, range_sample = clean_training_data(range_sample, out_path)
+eopatches, range_sample = clean_training_data(range_sample, out_path)
 
-	range_sample, features_train, features_test, labels_train, labels_test, labels_unique, p1, t1, w1, h1, f1 = craft_input_features(
-	                                                                                            eopatches,
-	                                                                                            range_sample,
-	                                                                                            lulc_classes,
-	                                                                                            out_path)
+range_sample, features_train, features_test, labels_train, labels_test, labels_unique, p1, t1, w1, h1, f1 =                                                                                             craft_input_features(
+                                                                                            eopatches,
+                                                                                            range_sample,
+                                                                                            lulc_classes,
+                                                                                            out_path)
 
-	# Set up the model
-	if model_path is not None:
-	    model = joblib.load(model_path)
+# Set up the model
+if model_path is not None:
+    model = joblib.load(model_path)
 
-	model = lgb.LGBMClassifier(
-	    boosting_type='rf',
-	    objective='multiclass',
-	    num_class=len(labels_unique),
-	    metric='multi_logloss',
-	    bagging_freq=1,
-	    bagging_fraction=0.632,
-	    feature_fraction=0.632
-	    # class_weight={0:0.1,1:0.15,2:0.05,3:0.05,4:0.15,5:0.15,6:0.05,7:0.15,8:0.15}
-	    # n_jobs=8
-	)
-	# train the model
-	model.fit(features_train, labels_train)
+model = lgb.LGBMClassifier(
+    boosting_type='rf',
+    objective='multiclass',
+    num_class=len(labels_unique),
+    metric='multi_logloss',
+    bagging_freq=1,
+    bagging_fraction=0.632,
+    feature_fraction=0.632
+    # class_weight={0:0.1,1:0.15,2:0.05,3:0.05,4:0.15,5:0.15,6:0.05,7:0.15,8:0.15}
+    # n_jobs=8
+)
+# train the model
+model.fit(features_train, labels_train)
 
-	start_date = time_interval[0]
-	end_date = time_interval[-1]
-	if not os.path.isdir(f'{out_path}/model'):
-	    os.makedirs(f'{out_path}/model', exist_ok=True)
-	joblib.dump(model, '{0}/model/{1}_{2}_{3}_{4}_{5}.pkl'
-	            .format(out_path, classifier, start_date, end_date,
-	                    interp_interval, datetime.datetime.now().strftime("%m.%d.%Y-%H:%M")))
-	joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
-	            .format(out_path, start_date, end_date,
-	                    interp_interval, datetime.datetime.now().strftime("%m.%d.%Y-%H:%M")))
+start_date = time_interval[0]
+end_date = time_interval[-1]
+if not os.path.isdir(f'{out_path}/model'):
+    os.makedirs(f'{out_path}/model', exist_ok=True)
+joblib.dump(model, '{0}/model/{1}_{2}_{3}_{4}_{5}.pkl'
+            .format(out_path, classifier, start_date, end_date,
+                    interp_interval, datetime.datetime.now().strftime("%m.%d.%Y-%H:%M")))
+joblib.dump(labels_unique, '{0}/model/labels_unique_{1}_{2}_{3}_{4}.pkl'
+            .format(out_path, start_date, end_date,
+                    interp_interval, datetime.datetime.now().strftime("%m.%d.%Y-%H:%M")))
 
-	# Plot test results and save them to ./test folder
-	#_test_model(model, eopatches, p1, t1, w1, h1, f1, features_test, labels_train, labels_test, lulc_classes, out_path)
+# Plot test results and save them to ./test folder
+#_test_model(model, eopatches, p1, t1, w1, h1, f1, features_test, labels_train, labels_test, lulc_classes, out_path)
 
-	# Perform a shap ML explainability analysis and save them to ./shap folder
-	#if shap:
-	#    shap_explainer(model, features_train, out_path)
+# Perform a shap ML explainability analysis and save them to ./shap folder
+#if shap:
+#    shap_explainer(model, features_train, out_path)
 
 
-	# # Plot test results
-	#
-
-	# In[ ]:
-
-
-	# predict the test labels
-	plabels_test = model.predict(features_test)
-	plabels_test = plabels_test.reshape(plabels_test.shape[0], 1)
-
-	class_labels = [cl for cl in lulc_classes.values()]
-	class_names = [cn for cn in lulc_classes.keys()]
-
-	# Reference colormap things
-	lulc_cmap = mpl.colors.ListedColormap([entry.color for entry in LULC])
-
-	print('Classification accuracy {:.1f}%'.format(100 * metrics.accuracy_score(labels_test, plabels_test)))
-	print(
-	    'Classification F1-score {:.1f}%'.format(100 * metrics.f1_score(labels_test, plabels_test, average='weighted')))
-
-	f1_scores = metrics.f1_score(labels_test, plabels_test, labels=class_labels, average=None)
-	recall = metrics.recall_score(labels_test, plabels_test, labels=class_labels, average=None)
-	precision = metrics.precision_score(labels_test, plabels_test, labels=class_labels, average=None)
-
-	t = open(f'{out_path}/validation/test_confusion_matrix.txt', 'w+')
-	print('             Class              =  F1  | Recall | Precision')
-	t.write('             Class              =  F1  | Recall | Precision\n')
-	print('         --------------------------------------------------')
-	t.write('         --------------------------------------------------\n')
-	for idx, lulctype in zip(range(len(class_labels)), class_names):
-	    print('         * {0:20s} = {1:2.1f} |  {2:2.1f}  | {3:2.1f}'.format(lulctype,
-	                                                                         f1_scores[idx] * 100,
-	                                                                         recall[idx] * 100,
-	                                                                         precision[idx] * 100))
-	    t.write('         * {0:20s} = {1:2.1f} |  {2:2.1f}  | {3:2.1f}\n'.format(lulctype,
-	                                                                             f1_scores[idx] * 100,
-	                                                                             recall[idx] * 100,
-	                                                                             precision[idx] * 100))
-	t.close()
-
-	return model, range_sample, labels_unique
+# # Plot test results
+# 
 
 # In[ ]:
 
-def predict_eopatch(model, bbox_splitter, labels_unique, proba, shap, out_path, idx):
 
-	info = bbox_splitter.info_list[idx]
+# predict the test labels
+plabels_test = model.predict(features_test)
+plabels_test = plabels_test.reshape(plabels_test.shape[0], 1)
 
-	os.makedirs(f'{out_path}/lulc_pred', exist_ok=True)
+class_labels = [cl for cl in lulc_classes.values()]
+class_names = [cn for cn in lulc_classes.keys()]
 
-	tiff_pred = f'pred_eopatch_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'
-	pred_output = PredictPatch(model, len(labels_unique), proba, shap)
-	export_pred = ExportToTiff((FeatureType.DATA_TIMELESS, 'PRED'),
-	                           image_dtype=np.uint8, no_data_value=0, date_indices=[0], band_indices=[0])
+# Reference colormap things
+lulc_cmap = mpl.colors.ListedColormap([entry.color for entry in LULC])
 
-	if not os.path.isdir(f'{out_path}/logs'):
-	    os.makedirs(f'{out_path}/logs')
+print('Classification accuracy {:.1f}%'.format(100 * metrics.accuracy_score(labels_test, plabels_test)))
+print(
+    'Classification F1-score {:.1f}%'.format(100 * metrics.f1_score(labels_test, plabels_test, average='weighted')))
 
-	range_missing = open(f'{out_path}/logs/missing_eopatches.txt', 'w+')
-	if os.path.isdir(f'{out_path}/lulc_sampled/eopatch_{idx}'):
-	    load = LoadFromDisk(f'{out_path}/lulc_sampled')
-	    save = SaveToDisk(f'{out_path}/lulc_sampled',
-	                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
-	else:
-	    # TODO: How to send these EOPatches to the back of the job queue for reprocessing?
-	    print(f'EOPatch {idx} is missing! Logging it for reprocessing...')
-	    range_missing.write(f'{idx}\n')
-	    return
+f1_scores = metrics.f1_score(labels_test, plabels_test, labels=class_labels, average=None)
+recall = metrics.recall_score(labels_test, plabels_test, labels=class_labels, average=None)
+precision = metrics.precision_score(labels_test, plabels_test, labels=class_labels, average=None)
 
-	if proba is True:
-	    export_proba = ExportToTiff((FeatureType.DATA_TIMELESS, 'PRED_PROBA'),
-	                                image_dtype=np.float16, band_indices=(0, 8), no_data_value=0, date_indices=[0])
-	    workflow_pred = LinearWorkflow(load,
-	                                   pred_output,
-	                                   save,
-	                                   export_pred,
-	                                   export_proba
-	                                   )
+t = open(f'{out_path}/validation/test_confusion_matrix.txt', 'w+')
+print('             Class              =  F1  | Recall | Precision')
+t.write('             Class              =  F1  | Recall | Precision\n')
+print('         --------------------------------------------------')
+t.write('         --------------------------------------------------\n')
+for idx, lulctype in zip(range(len(class_labels)), class_names):
+    print('         * {0:20s} = {1:2.1f} |  {2:2.1f}  | {3:2.1f}'.format(lulctype,
+                                                                         f1_scores[idx] * 100,
+                                                                         recall[idx] * 100,
+                                                                         precision[idx] * 100))
+    t.write('         * {0:20s} = {1:2.1f} |  {2:2.1f}  | {3:2.1f}\n'.format(lulctype,
+                                                                             f1_scores[idx] * 100,
+                                                                             recall[idx] * 100,
+                                                                             precision[idx] * 100))
+t.close()
 
-	    tiff_proba = f'proba_eopatch_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'
-	    extra_param[export_proba] = {'filename': f'{out_path}/lulc_pred/{tiff_proba}'}
-	else:
-	    workflow_pred = LinearWorkflow(load,
-	                                   pred_output,
-	                                   save,
-	                                   export_pred
-	                                   )
-
-	if os.path.isfile(f'{out_path}/lulc_pred/{tiff_pred}'):
-	    print("this patch has already been predicted. skipping to next patch.")
-	    return
-	else:
-	    attempts = 0
-	    while attempts < 5:
-	        try:
-	            result_pred = workflow_pred.execute(
-	                {load: {'eopatch_folder': f'eopatch_{idx}'},
-	                 save: {'eopatch_folder': f'eopatch_{idx}'},
-	                 export_pred: {'filename': f'{out_path}/lulc_pred/{tiff_pred}'}
-	                 })
-	            print(result_pred[list(result_pred.keys())[-1]])
-	            patch_s2 = list(result_pred.values())[-1]
-	        except:
-	            print(f'Prediction for eopatch {idx} has failed, trying again...')
-	            print("Exception in user code:")
-	            print('-' * 60)
-	            traceback.print_exc(file=sys.stdout)
-	            print('-' * 60)
-	            attempts += 1
-	            continue
-	        break
-	return patch_s2
-
-for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-	range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-	range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-	train_model(range_idx, args.lulc_classes, args.time_range, out_path=f'{out_path}/{country_list[aoi_idx]}')
-	for idx in [bbox_splitter.bbox_list.index(bbox) for bbox in bbox_splitter.bbox_list]:
-		load_eopatch(bbox_splitter, time_range, training_arrays[aoi_idx], \
-		split_arrays[aoi_idx], training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', row, col, idx)
-		interpolate_eopatch(resample_range, training_vals[aoi_idx], f'{out_path}/{country_list[aoi_idx]}', idx)
-		predict_eopatch(model, bbox_splitter, labels_unique,
-						proba, shap, f'{dest_folder}/{idx}', i)
 
 # In[ ]:
 
@@ -1548,7 +1454,7 @@ for idx,lbl in enumerate(class_labels):
     except:
         absent_value.append(lbl)
         continue
-
+        
 plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
 plt.xlim([0.0, 0.2])
 plt.ylim([0.0, 1.05])
@@ -1658,11 +1564,81 @@ pbar = tqdm(total=len(bbox_splitter.bbox_list))
 
 
 # # Predict EOPatches using trained model
-#
+# 
 
-# # Plot a web map
-# Some examples of implementation using ipywidget and ipyleaflet.
-#
+# In[ ]:
+
+
+info = bbox_splitter.info_list[idx]
+
+os.makedirs(f'{out_path}/lulc_pred', exist_ok=True)
+
+tiff_pred = f'pred_eopatch_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'
+pred_output = PredictPatch(model, len(labels_unique), proba, shap)
+export_pred = ExportToTiff((FeatureType.DATA_TIMELESS, 'PRED'),
+                           image_dtype=np.uint8, no_data_value=0, date_indices=[0], band_indices=[0])
+
+if not os.path.isdir(f'{out_path}/logs'):
+    os.makedirs(f'{out_path}/logs')
+
+range_missing = open(f'{out_path}/logs/missing_eopatches.txt', 'w+')
+if os.path.isdir(f'{out_path}/lulc_sampled/eopatch_{idx}'):
+    load = LoadFromDisk(f'{out_path}/lulc_sampled')
+    save = SaveToDisk(f'{out_path}/lulc_sampled',
+                      overwrite_permission=OverwritePermission.OVERWRITE_PATCH)
+else:
+    # TODO: How to send these EOPatches to the back of the job queue for reprocessing?
+    print(f'EOPatch {idx} is missing! Logging it for reprocessing...')
+    range_missing.write(f'{idx}\n')
+    return
+
+if proba is True:
+    export_proba = ExportToTiff((FeatureType.DATA_TIMELESS, 'PRED_PROBA'),
+                                image_dtype=np.float32, band_indices=(0, 8), no_data_value=0, date_indices=[0])
+    workflow_pred = LinearWorkflow(load,
+                                   pred_output,
+                                   save,
+                                   export_pred,
+                                   export_proba
+                                   )
+
+    tiff_proba = f'proba_eopatch_{idx}_row-{info["index_x"]}_col-{info["index_y"]}.tiff'
+    extra_param[export_proba] = {'filename': f'{out_path}/lulc_pred/{tiff_proba}'}
+else:
+    workflow_pred = LinearWorkflow(load,
+                                   pred_output,
+                                   save,
+                                   export_pred
+                                   )
+
+if os.path.isfile(f'{out_path}/lulc_pred/{tiff_pred}'):
+    print("this patch has already been predicted. skipping to next patch.")
+    return
+else:
+    attempts = 0
+    while attempts < 5:
+        try:
+            result_pred = workflow_pred.execute(
+                {load: {'eopatch_folder': f'eopatch_{idx}'},
+                 save: {'eopatch_folder': f'eopatch_{idx}'},
+                 export_pred: {'filename': f'{out_path}/lulc_pred/{tiff_pred}'}
+                 })
+            print(result_pred[list(result_pred.keys())[-1]])
+            patch_s2 = list(result_pred.values())[-1]
+        except:
+            print(f'Prediction for eopatch {idx} has failed, trying again...')
+            print("Exception in user code:")
+            print('-' * 60)
+            traceback.print_exc(file=sys.stdout)
+            print('-' * 60)
+            attempts += 1
+            continue
+        break
+
+
+# # Plot a web map 
+# Some examples of implementation using ipywidget and ipyleaflet. 
+# 
 
 # In[ ]:
 
@@ -1707,14 +1683,14 @@ with sc:
 
 
 # Iteratively display the predicted tiles as they become available in folder structure
-for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_sh_eopatch_*local.tiff"):
-	out_path = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_4326.tiff"
-	with rio.open(out_path) as src:
-	   boundary = src.bounds
-
-	m.add_layer(ImageOverlay(url="http://172.29.254.183:8000/"+tiff[:-5].split('/')[-1]+"_4326.png", bounds=((boundary[1], boundary[0]),
-	                                        (boundary[3], boundary[2])), opacity=1))
-	m
+   for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_sh_eopatch_*local.tiff"):
+   out_path = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_4326.tiff"
+   with rio.open(out_path) as src:
+       boundary = src.bounds
+   
+   m.add_layer(ImageOverlay(url="http://172.29.254.183:8000/"+tiff[:-5].split('/')[-1]+"_4326.png", bounds=((boundary[1], boundary[0]), 
+                                            (boundary[3], boundary[2])), opacity=1))
+   m
 
 
 # In[ ]:
@@ -1731,15 +1707,15 @@ m
 
 for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_sh_eopatch_*local.tiff"):
     # Create variables for destination coordinate system and the name of the projected raster
-    src_crs = 'EPSG:32719'
-    dst_crs = 'EPSG:4326'
+    src_crs = 'EPSG:32719' 
+    dst_crs = 'EPSG:4326' 
     out_vrt = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_col1.tiff"
     out_vrt1 = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_col.tiff"
     out_path = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_4326.tiff"
     out_jpg = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_4326.png"
     out_tms = "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/"+tiff[:-5].split('/')[-1]+"_4326"
     #print(out_path)
-
+    
     cmd = 'gdaldem color-relief %s /mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/col.txt %s -of Gtiff'%(tiff,out_vrt)
     get_ipython().system('{cmd}')
     """cmd1 = 'gdalwarp -of GTiff -overwrite -s_srs %s -t_srs %s %s %s'%(src_crs, dst_crs, out_vrt, out_vrt1)
@@ -1747,10 +1723,10 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
     os.remove(out_vrt)
     cmd2 = 'gdal_translate -of JPEG %s %s'%(out_vrt1,out_path)
     !{cmd2}"""
-
+    
     #subprocess.call(["gdaldem","color-relief", tiff, "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/col.txt",out_vrt,"-of" ,"VRT"])
     #subprocess.call(["gdalwarp","-of", "JPEG", "-s_srs",src_crs,"-t_srs",dst_crs, out_vrt, out_path])
-
+    
     # Use rasterio package as rio to open and project the raster
     with rio.open(out_vrt) as src:
         transform, width, height = calculate_default_transform(
@@ -1781,16 +1757,17 @@ for tiff in glob.glob("/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/val_pred_
         #print(boundary)
         #img = src.read()
         #nodata = src.nodata
-
+    
     cmd2 = "convert %s -transparent black -fuzz 11%% %s"%(out_path, out_jpg)
     get_ipython().system('{cmd2}')
 
     # Overlay raster called img using add_child() function (opacity and bounding box set)
     #m.add_child( folium.raster_layers.ImageOverlay(img[0], opacity=1, colormap=newcmp,
     #                                 bounds =[[boundary[1], boundary[0]], [boundary[3], boundary[2]]]))
-    m.add_layer(ImageOverlay(url="http://172.29.254.183:8000/"+tiff[:-5].split('/')[-1]+"_4326.png", bounds=((boundary[1], boundary[0]),
+    m.add_layer(ImageOverlay(url="http://172.29.254.183:8000/"+tiff[:-5].split('/')[-1]+"_4326.png", bounds=((boundary[1], boundary[0]), 
                                              (boundary[3], boundary[2])), opacity=1))
 
     m
-
+    
 m.save(outfile= "/mnt/1t-drive/eopatch-L1C/nam_usa_uca/lulc_pred/folium/test.html")
+
