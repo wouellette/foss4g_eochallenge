@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[2]:
 
 
 get_ipython().run_line_magic('matplotlib', 'inline')
 
-first_src_filepath = '/home/vanhove/Downloads/joze_airport_ground_truth.tif'
-second_src_filepath = '/home/vanhove/Downloads/joze_airport_prediction.tif'
+first_src_filepath = ''
+second_src_filepath = ''
 
 import pprint
 import rasterio
@@ -16,7 +16,9 @@ import rasterio.fill
 import rasterio.mask
 import rasterio.plot
 import rasterio.warp
+import matplotlib.animation
 import numpy
+
 
 def grayscale(dataset):
     array = numpy.array((numpy.array(dataset.read(1)), numpy.array(dataset.read(2)), numpy.array(dataset.read(3)))).T
@@ -59,7 +61,7 @@ with rasterio.Env():
             blue_mask = src_blue != second_src_blue
             
             # combine color masks into one
-            mask = (red_mask | green_mask | blue_mask)
+            mask = (red_mask | green_mask | blue_mask) != True
             
             # convert mask into int16
             mask = numpy.array(mask, dtype='int16')
@@ -67,11 +69,11 @@ with rasterio.Env():
             mask = mask * int16_max_value
             
             # pixel diff visualization
-            rasterio.plot.show(mask, title='Pixel diff result')
+            rasterio.plot.show(mask, title='Pixel diff result', cmap='Greys')
                         
             
             sieved_mask = rasterio.features.sieve(mask, size=100)
-            rasterio.plot.show(sieved_mask, title='Pixel diff sieved on 100px')            
+            rasterio.plot.show(sieved_mask, title='Pixel diff sieved on 100px', cmap='Greys')            
             
             # writing sieving examples to files
             write_to_file('sieved_100.tif', rasterio.features.sieve(mask, size=100), second_src.profile)
@@ -81,7 +83,27 @@ with rasterio.Env():
             write_to_file('sieved_500.tif', rasterio.features.sieve(mask, size=500), second_src.profile)
             write_to_file('sieved_600.tif', rasterio.features.sieve(mask, size=600), second_src.profile)
             
+            
+            src_array = [src.read(1), src.read(2), src.read(3)]
+            second_src_array = [second_src.read(1), second_src.read(2), second_src.read(3)]
+            
+            shapes_mask = rasterio.features.shapes(sieved_mask)
         
+            geojson_shapes_mask = []
+            for shape in shapes_mask:
+                if shape[1] == int16_max_value:
+                    geojson_shapes_mask.append(shape[0])
+                            
+            masked_array = rasterio.mask.mask(second_src, shapes=geojson_shapes_mask, filled=True, invert=True)
+            plt = rasterio.plot.get_plt()
+            figure = plt.figure(figsize=(12.0, 12.0))
+            ims = []
+            ims.append([plt.imshow(numpy.ma.transpose(src_array, [1, 2, 0]), animated=True)])
+            ims.append([plt.imshow(numpy.ma.transpose(second_src_array, [1, 2, 0]), animated=True)])
+            ims.append([plt.imshow(numpy.ma.transpose(numpy.ma.squeeze(masked_array[0]), [1, 2, 0]), animated=True)])
+
+            ani = matplotlib.animation.ArtistAnimation(figure, ims, interval=1000, blit=True, repeat_delay=1000)
+            ani.save('difference.gif', writer='imagemagick', fps=1)
         
         
 
