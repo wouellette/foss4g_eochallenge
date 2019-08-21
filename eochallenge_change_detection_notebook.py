@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[3]:
+# In[2]:
 
 
 first_src_filepath = ''
@@ -57,7 +57,7 @@ with rasterio.Env():
             blue_mask = src_blue != second_src_blue
             
             # combine color masks into one
-            mask = (red_mask & green_mask & blue_mask)
+            mask = (red_mask | green_mask | blue_mask)
             
             # convert mask into int16
             mask = numpy.array(mask, dtype='int16')
