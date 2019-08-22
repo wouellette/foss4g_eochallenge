@@ -1260,13 +1260,12 @@ n_procs = args.n_procs
 resample_range = (args.time_range[0], args.time_range[1], args.interpolation_interval)
 
 for aoi_idx, bbox_splitter in enumerate(bbox_splitter_list):
-    if aoi_idx == 1:
-        range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
-        range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
-        batch_prepare_multi = partial(batch_prepare, bbox_splitter, resample_range, time_range,
-                                      training_arrays[aoi_idx], split_arrays[aoi_idx], training_vals[aoi_idx],
-                                      row, col, f'{out_path}/{country_list[aoi_idx]}')
-        multiprocess(n_procs, range_idx, batch_prepare_multi)
+    range_bbox = intersect_aoi(bbox_splitter, trainings[aoi_idx])
+    range_idx = [bbox_splitter.bbox_list.index(bbox) for bbox in range_bbox]
+    batch_prepare_multi = partial(batch_prepare, bbox_splitter, resample_range, time_range,
+                                  training_arrays[aoi_idx], split_arrays[aoi_idx], training_vals[aoi_idx],
+                                  row, col, f'{out_path}/{country_list[aoi_idx]}')
+    multiprocess(n_procs, range_idx, batch_prepare_multi)
 
 # # Train a RF model for the respective AOIs
 # The implementation is a simple random forest ensemble, but if we have time we could investigate in the following:
