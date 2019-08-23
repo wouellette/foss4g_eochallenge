@@ -97,6 +97,10 @@ gdal_sieve.py -st 50 /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_roma
 gdal_translate -q /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018_s50.tif /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018_s50_compress.tif -co COMPRESS=DEFLATE -co TILED=YES -co PREDICTOR=2
 ```
 
+## Perform pixel-based change detection
+
+The `eochallenge_change_detection_notebook.ipynb` can be run through to create a gif of the changed objects between the two years.
+
 ## Misc
 
 The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) and [`ogc.py`](./ogc.py) files to overwrite the original files in the package.
