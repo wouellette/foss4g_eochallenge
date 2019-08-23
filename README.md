@@ -63,6 +63,38 @@ As an example, you can copy the **[pre-commit](./pre-commit)** file (main conten
     git add eochallenge_notebook.py
 ```
 
+## Run the land cover extraction
+
+In order to run the workbench based on `eo-learn` and `sentinelhub-py`, you can run the following lines 
+after cloning the repository and installing the dependencies:
+
+- Run the full processing chain (input data preparation, model training and prediction):
+```shell script
+python eochallenge_notebook_full.py
+```
+
+- Run only the input data preparation:
+```shell script
+python eochallenge_notebook_prepare_data.py
+```
+
+- Interactively train the model, print the test results and run the prediction, run `jupyter lab`, 
+open `eochallenge_notebook_train_predict.ipynb`, and run through the code blocks. 
+_This part remains unfinished. It is advised to run the code with the `eochallenge_notebook_full.py`._
+
+Once prediction has produced a collection of land cover TIFFs, the results can be stitched together and denoised using `GDAL` CLIs:
+Romania 2018 example:
+```shell script
+# build a .VRT file with all independent TIFF files (potentially 100s)
+gdalbuildvrt /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018.vrt /home/ubuntu/output/2018/Romania/lulc_pred/pred*
+
+# Sieve the output to denoise the pixel-based output with a 50 "pixel polygon" size threshold.
+gdal_sieve.py -st 50 /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018.vrt -of GTiff /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018_s50.tif
+
+# (optional) perform additional tiling and compressing
+gdal_translate -q /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018_s50.tif /home/ubuntu/output/2018/Romania/lulc_pred/pred_mosaic_romania_2018_s50_compress.tif -co COMPRESS=DEFLATE -co TILED=YES -co PREDICTOR=2
+```
+
 ## Misc
 
 The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) and [`ogc.py`](./ogc.py) files to overwrite the original files in the package.
