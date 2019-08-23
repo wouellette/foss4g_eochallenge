@@ -1,0 +1,28 @@
+number of training samples for: no data
+35000
+number of test samples for: no data
+56863
+number of training samples for: forest
+7000
+number of test samples for: forest
+2000
+number of training samples for: grass
+0
+number of test samples for: grass
+0
+number of training samples for: farmland
+15000
+number of test samples for: farmland
+4503
+number of training samples for: bare soil
+4000
+number of test samples for: bare soil
+0
+number of training samples for: built-up
+4000
+number of test samples for: built-up
+4804
+number of training samples for: permanent water
+13000
+number of test samples for: permanent water
+9830

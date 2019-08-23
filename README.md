@@ -65,6 +65,8 @@ As an example, you can copy the **[pre-commit](./pre-commit)** file (main conten
 
 ## Run the land cover extraction
 
+![Current Basemap, Yuck!](lc_outputs/romania_mosaic_2016.png)
+
 In order to run the workbench based on `eo-learn` and `sentinelhub-py`, you can run the following lines 
 after cloning the repository and installing the dependencies:
 
