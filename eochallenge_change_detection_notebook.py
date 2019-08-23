@@ -1,109 +1,96 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[2]:
+# Creating a GIF file containing two images and their difference
 
+# In[14]:
+
+
+first_src_filepath = './diffing_data/sieve_70_2016.tif'
+second_src_filepath = './diffing_data/sieve_70_2018.tif'
+output_filepath='./difference.gif'
 
 get_ipython().run_line_magic('matplotlib', 'inline')
 
-first_src_filepath = ''
-second_src_filepath = ''
 
-import pprint
-import rasterio
+from collections import defaultdict
+import matplotlib.animation
+from matplotlib.colors import ListedColormap
+import matplotlib.cm
+import numpy
 import rasterio.features
-import rasterio.fill
-import rasterio.mask
 import rasterio.plot
 import rasterio.warp
-import matplotlib.animation
-import numpy
-
-
-def grayscale(dataset):
-    array = numpy.array((numpy.array(dataset.read(1)), numpy.array(dataset.read(2)), numpy.array(dataset.read(3)))).T
-    return rgb2gray(array)
-
-def rgb2gray(rgb):
-    return numpy.array(numpy.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140]), dtype='int32')
-
-def diff(first, second, src):
-    mask = first != second
-    shapes = rasterio.features.shapes(second, mask=mask)
-    result = rasterio.mask.mask(src, shapes=shapes, pad=True)
-    return result
     
-
-def write_to_file(file_name, mask, src_profile):
-    profile = rasterio.profiles.Profile(**src_profile)
-    profile.update({
-        'dtype': 'int16',
-        'count': 1
-    })
-    with rasterio.open(file_name, 'w', **profile) as dst:
-                dst.write(mask.astype(rasterio.int16), 1)
         
+def create_pixel_diff_mask(dataset, second_dataset):
+    src_array = dataset.read()
+    second_src_array = second_dataset.read()
+    
+    full_mask = None
+    for i in range(len(src_array)):
+        src_mask = numpy.array(src_array[i])
+        second_src_mask = numpy.array(second_src_array[i])
+        mask = src_mask != second_src_mask
+        if full_mask is None:    
+            full_mask = mask
+        else:
+            full_mask = full_mask | mask
+                
+    return full_mask
+
+def create_color_map():
+    custom = matplotlib.cm.get_cmap('viridis', 7)
+    newcolors = custom(numpy.linspace(0, 1, 7))
+    black = numpy.array([0/256, 0/256, 0/256, 1])
+    dark_green = numpy.array([14/256, 126/256, 42/256, 1])
+    green = numpy.array([116/256, 246/256, 83/256, 1])
+    sand = numpy.array([255/256, 223/256, 154/256, 1])
+    dark_yellow = numpy.array([179/256, 144/256, 18/256, 1])
+    red = numpy.array([203/256, 0/256, 0/256, 1])
+    blue = numpy.array([43/256, 131/256, 186/256, 1])
+    newcolors[0, :] = black
+    newcolors[1, :] = dark_green
+    newcolors[2, :] = green
+    newcolors[3, :] = sand
+    newcolors[4, :] = dark_yellow
+    newcolors[5, :] = red
+    newcolors[6, :] = blue
+    matplotlib.cm.register_cmap(name='custom', cmap=ListedColormap(newcolors))
+
 with rasterio.Env():
     with rasterio.open(first_src_filepath) as src:
         with rasterio.open(second_src_filepath) as second_src:
-            
-            # extract color bands
-            src_red = numpy.array(src.read(1))
-            second_src_red = numpy.array(second_src.read(1))
-            src_green = numpy.array(src.read(2))
-            second_src_green = numpy.array(second_src.read(2))
-            src_blue = numpy.array(src.read(3))
-            second_src_blue = numpy.array(second_src.read(3))
-            
-            # create mask for each color
-            red_mask = src_red != second_src_red
-            green_mask = src_green != second_src_green
-            blue_mask = src_blue != second_src_blue
-            
-            # combine color masks into one
-            mask = (red_mask | green_mask | blue_mask) != True
+            create_color_map()   
+            # create pixel diff mask
+            mask = create_pixel_diff_mask(src, second_src)
             
             # convert mask into int16
-            mask = numpy.array(mask, dtype='int16')
-            int16_max_value = rasterio.dtypes.dtype_ranges['int16'][1]
-            mask = mask * int16_max_value
+            visualization_mask = numpy.array(mask, dtype='int32')
+            int16_max_value = rasterio.dtypes.dtype_ranges['int32'][1]
+            visualization_mask = visualization_mask * int16_max_value
             
             # pixel diff visualization
-            rasterio.plot.show(mask, title='Pixel diff result', cmap='Greys')
+            # rasterio.plot.show(visualization_mask, title='Pixel diff result', cmap='Greys')
+            
+            src_array = src.read()
+            second_src_array = second_src.read()
                         
+            shapes_mask = rasterio.features.shapes(visualization_mask)
+  
+            masked_array = second_src_array * mask
+            masked_array = numpy.ma.squeeze(masked_array)
             
-            sieved_mask = rasterio.features.sieve(mask, size=100)
-            rasterio.plot.show(sieved_mask, title='Pixel diff sieved on 100px', cmap='Greys')            
-            
-            # writing sieving examples to files
-            write_to_file('sieved_100.tif', rasterio.features.sieve(mask, size=100), second_src.profile)
-            write_to_file('sieved_200.tif', rasterio.features.sieve(mask, size=200), second_src.profile)
-            write_to_file('sieved_300.tif', rasterio.features.sieve(mask, size=300), second_src.profile)
-            write_to_file('sieved_400.tif', rasterio.features.sieve(mask, size=400), second_src.profile)
-            write_to_file('sieved_500.tif', rasterio.features.sieve(mask, size=500), second_src.profile)
-            write_to_file('sieved_600.tif', rasterio.features.sieve(mask, size=600), second_src.profile)
-            
-            
-            src_array = [src.read(1), src.read(2), src.read(3)]
-            second_src_array = [second_src.read(1), second_src.read(2), second_src.read(3)]
-            
-            shapes_mask = rasterio.features.shapes(sieved_mask)
-        
-            geojson_shapes_mask = []
-            for shape in shapes_mask:
-                if shape[1] == int16_max_value:
-                    geojson_shapes_mask.append(shape[0])
-                            
-            masked_array = rasterio.mask.mask(second_src, shapes=geojson_shapes_mask, filled=True, invert=True)
+            # draw GIF
             plt = rasterio.plot.get_plt()
             figure = plt.figure(figsize=(12.0, 12.0))
             ims = []
-            ims.append([plt.imshow(numpy.ma.transpose(src_array, [1, 2, 0]), animated=True)])
-            ims.append([plt.imshow(numpy.ma.transpose(second_src_array, [1, 2, 0]), animated=True)])
-            ims.append([plt.imshow(numpy.ma.transpose(numpy.ma.squeeze(masked_array[0]), [1, 2, 0]), animated=True)])
+            
+            ims.append([plt.imshow(src_array[0],vmin=0, vmax=6, animated=True, cmap='custom')])
+            ims.append([plt.imshow(second_src_array[0],vmin=0, vmax=6, animated=True, cmap='custom')])
+            ims.append([plt.imshow(masked_array,vmin=0, vmax=6, animated=True, cmap='custom')])
 
             ani = matplotlib.animation.ArtistAnimation(figure, ims, interval=1000, blit=True, repeat_delay=1000)
-            ani.save('difference.gif', writer='imagemagick', fps=1)
-        
-        
+            ani.save(output_filepath, writer='imagemagick', fps=1)
+            
 
