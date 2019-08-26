@@ -104,3 +104,5 @@ The `eochallenge_change_detection_notebook.ipynb` can be run through to create a
 ## Misc
 
 The `sentinelhub` package currently does not support custom DataSources, to add that support for time being you'll need to use the [`contants.py`](./constants.py) and [`ogc.py`](./ogc.py) files to overwrite the original files in the package.
+
+This repository is experimental and carried out in the context of the FOSS4G EO Challenge. Therefore, the `instance_id` used is specific to the project, so one would need to recreate their Sentinelhub environment with their respective `instance_id`.
